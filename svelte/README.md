@@ -38,4 +38,3 @@
 ### 🔹 **빌드 및 배포**
 
 - **Node.js 기반 서버 (`@sveltejs/adapter-node` v5.2.11)** - Node 환경에서 SvelteKit 실행 가능
-- **Autoprefixer (`autoprefixer` v10.4.20)** - CSS 자동 벤더 프리픽스 추가
