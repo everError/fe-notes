@@ -26,8 +26,11 @@ FE-NOTES/
 │── nuxt/                                                                   # Nuxt.js 학습 공간
 │
 │── svelte/                                                                 # SvelteKit 학습 공간
+│   │── experiments/                                                        # 실습 프로젝트
 │   │── notes/
 │   │   │── svelte_svelteKit.md                                             # Svelte와 SvelteKit 개념 정리
+│   │   │── sveltekit_adapters.md                                           # SvelteKit Adapter 정리
+│   │   │── sveltekit_ssr_ssg                                               # SvelteKit SSR, SSG 적용
 │   │── README.md
 │
 │── README.md
