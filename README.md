@@ -30,7 +30,8 @@ FE-NOTES/
 │   │── notes/
 │   │   │── svelte_svelteKit.md                                             # Svelte와 SvelteKit 개념 정리
 │   │   │── sveltekit_adapters.md                                           # SvelteKit Adapter 정리
-│   │   │── sveltekit_ssr_ssg                                               # SvelteKit SSR, SSG 적용
+│   │   │── sveltekit_ssr_ssg.md                                            # SvelteKit SSR, SSG 적용
+│   │   │── svelte_use_enhance.md                                           # form 태그 use:enhance
 │   │── README.md
 │
 │── README.md
