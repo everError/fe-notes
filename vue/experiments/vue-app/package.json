@@ -1,0 +1,19 @@
+{
+  "name": "vue-app",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "format": "prettier --write .",
+    "check-format": "prettier --check .",
+    "dev:client": "yarn workspace client dev",
+    "dev:all": "concurrently \"yarn workspace client dev\" \"yarn workspace manage dev\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  },
+  "dependencies": {
+    "prettier": "^3.4.2"
+  }
+}

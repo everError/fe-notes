@@ -1,0 +1,16 @@
+{
+  "extends": "../shared/tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@shared/*": ["../shared/src/*"],
+      "@comp/*": ["../shared/src/components/*"],
+      "@def/*": ["../shared/src/defines/*"],
+      "@modules/*": ["../shared/src/modules/*"],
+      "@stores/*": ["../shared/src/stores/*"]
+    },
+    "outDir": "./dist"
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.vue"]
+}
