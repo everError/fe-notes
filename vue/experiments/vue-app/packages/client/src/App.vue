@@ -1,6 +1,5 @@
 <template>
   <div>
-    <!-- layoutComponent가 설정될 때만 렌더링 -->
     <component :is="layoutComponent">
       <router-view />
     </component>
@@ -17,9 +16,6 @@ import Toast from 'primevue/toast';
 
 const route = useRoute();
 const layoutComponent = computed(() => {
-  if (route.path === '/') {
-    return EmptyLayout;
-  }
   return route.meta.layout ?? DefaultLayout;
 });
 </script>
