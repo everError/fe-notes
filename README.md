@@ -1,6 +1,6 @@
 # Frontend Notes
 
-이 레포지토리는 SvelteKit, Nuxt.js, Vue.js 등 다양한 프론트엔드 프레임워크를 학습하고 구현하는 공간입니다. Vite, TypeScript, TailwindCSS를 활용하여 현대적인 웹 애플리케이션을 개발하는 과정을 기록합니다.
+이 레포지토리는 SvelteKit, Nuxt.js, Vue.js 등 다양한 프론트엔드 프레임워크를 학습하고 구현하는 공간입니다. Vite, TypeScript, TailwindCSS를 활용하여 웹 애플리케이션을 개발하는 과정을 기록합니다.
 
 ## 기술 스택
 
