@@ -1,14 +1,29 @@
 @import "tailwindcss";
 
-/* ✅ 모든 배경색 (예: bg-red-100 ~ bg-gray-900) */
+/* ✅ 모든 배경색 */
 @source inline("bg-{slate,gray,zinc,neutral,stone,red,orange,amber,yellow,lime,green,emerald,teal,cyan,sky,blue,indigo,violet,purple,fuchsia,pink,rose}-{50..900..50}");
 
-/* ✅ 간격 - margin & padding (예: m-0 ~ m-96, px-2, py-4 등) */
+/* ✅ 간격 - margin & padding */
 @source inline("{m,p,mt,mb,ml,mr,pt,pr,pb,pl,px,py,mx,my}-{0..96..1}");
 
-/* ✅ 크기 - width & height (예: w-10, w-full, h-screen 등) */
+/* ✅ 크기 - width & height */
 @source inline("{w,h,min-w,max-w,min-h,max-h}-{0..200..1}");
 @source inline("w-{full,screen} h-{full,screen}");
 
-/* ✅ border-radius (rounded 등도 많이 씀) */
+/* ✅ border-radius */
 @source inline("rounded{,-none,-sm,-md,-lg,-xl,-2xl,-3xl,full}");
+
+/* ✅ flex 관련 유틸리티 */
+@source inline("flex flex-{row,row-reverse,col,col-reverse,wrap,wrap-reverse,nowrap} flex-{1,auto,initial,none}");
+@source inline("flex-grow{,-0} flex-shrink{,-0}");
+
+/* ✅ justify 관련 유틸리티 */
+@source inline("justify-{start,end,center,between,around,evenly,normal}");
+
+/* ✅ align 관련 유틸리티 */
+@source inline("items-{start,end,center,baseline,stretch}");
+@source inline("content-{center,start,end,between,around,evenly}");
+
+/* ✅ gap 관련 유틸리티 */
+@source inline("gap-{0..32..1}");
+@source inline("gap-{x,y}-{0..32..1}");

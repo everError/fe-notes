@@ -3,6 +3,8 @@
   <div class="code-preview">
     <div class="preview-header">
       <h3>📝 코드 미리보기</h3>
+      <button @click="exportEditorState">저장</button>
+      <input type="file" accept="application/json" @change="onFileChange" />
       <button @click="copyCode">복사</button>
     </div>
     <pre><code>{{ code }}</code></pre>
@@ -16,6 +18,44 @@ import { computed } from "vue";
 
 const store = useEditorStore();
 const code = computed(() => generateVueCode(store.rootNodes));
+
+// 저장하기 (예: 버튼 클릭 시)
+function exportEditorState() {
+  const json = JSON.stringify(store.rootNodes, null, 2);
+  // 클립보드 복사
+  navigator.clipboard.writeText(json);
+  // 또는 파일로 저장 (아래 예시)
+  const blob = new Blob([json], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "editor-state.json";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+// 불러오기 (예: 파일 선택, 또는 textarea에 붙여넣기 등)
+function importEditorState(json: string) {
+  try {
+    const nodes = JSON.parse(json);
+    // 간단하게는 바로 대입
+    store.rootNodes = nodes;
+    // 만약 ref(rootNodes.value)라면 store.rootNodes.value = nodes;
+  } catch (e) {
+    alert("불러오기 실패: 올바른 JSON이 아닙니다.");
+  }
+}
+function onFileChange(e: Event) {
+  const input = e.target as HTMLInputElement;
+  if (!input.files?.length) return;
+  const file = input.files[0];
+  const reader = new FileReader();
+  reader.onload = () => {
+    if (typeof reader.result === "string") {
+      importEditorState(reader.result);
+    }
+  };
+  reader.readAsText(file);
+}
 
 function copyCode() {
   navigator.clipboard.writeText(code.value).then(() => {

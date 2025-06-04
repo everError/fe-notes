@@ -80,7 +80,7 @@ function onDrop(slotName: string, event: DragEvent) {
 <style scoped>
 .rendered-node.selected,
 .text-node.selected {
-  outline: 2px solid #42b983;
+  outline: 2px solid #4262b9;
   outline-offset: 2px;
 }
 .slot.drop-zone {
