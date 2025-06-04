@@ -14,6 +14,7 @@
 - [SvelteKit](./svelte)
 - [Nuxt.js](./nuxt)
 - [Vue.js](./vue)
+- [Vue-Editor](./vue-editor)
 
 ## 폴더 구조
 
@@ -40,6 +41,7 @@ FE-NOTES/
 │   │   │── svelte_use_enhance.md                                           # form 태그 use:enhance
 │   │── README.md
 │
+│── vue-editor                                                              # vue editor 개발
 │── README.md
 ```
 

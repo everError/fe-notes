@@ -1,0 +1,14 @@
+@import "tailwindcss";
+
+/* ✅ 모든 배경색 (예: bg-red-100 ~ bg-gray-900) */
+@source inline("bg-{slate,gray,zinc,neutral,stone,red,orange,amber,yellow,lime,green,emerald,teal,cyan,sky,blue,indigo,violet,purple,fuchsia,pink,rose}-{50..900..50}");
+
+/* ✅ 간격 - margin & padding (예: m-0 ~ m-96, px-2, py-4 등) */
+@source inline("{m,p,mt,mb,ml,mr,pt,pr,pb,pl,px,py,mx,my}-{0..96..1}");
+
+/* ✅ 크기 - width & height (예: w-10, w-full, h-screen 등) */
+@source inline("{w,h,min-w,max-w,min-h,max-h}-{0..200..1}");
+@source inline("w-{full,screen} h-{full,screen}");
+
+/* ✅ border-radius (rounded 등도 많이 씀) */
+@source inline("rounded{,-none,-sm,-md,-lg,-xl,-2xl,-3xl,full}");

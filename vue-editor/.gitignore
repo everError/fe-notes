@@ -1,0 +1,35 @@
+# Node & pnpm
+node_modules/
+.pnpm-debug.log*
+pnpm-lock.yaml
+
+# Vite
+dist/
+*.local
+
+# VSCode
+.vscode/
+.history/
+
+# macOS
+.DS_Store
+
+# Log files
+*.log
+
+# 환경변수, 빌드산출물
+.env*
+*.env.*
+
+# IDE/Editor
+.idea/
+*.iml
+
+# TypeScript build output
+*.tsbuildinfo
+
+# 기타
+coverage/
+temp/
+tmp/
+.cache/
