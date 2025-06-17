@@ -1,7 +1,7 @@
 import { ComponentMeta } from "../../types";
 
-export const MyCardMeta: ComponentMeta = {
-  name: "MyCard",
+export const BaseCardMeta: ComponentMeta = {
+  name: "BaseCard",
   props: [{ name: "title", type: "string", default: "Card Title" }],
-  slots: ["first", "second"],
+  slots: ["default"],
 };
