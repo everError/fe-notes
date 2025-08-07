@@ -11,6 +11,7 @@
 
 ## 학습 폴더
 
+- [노트 정리](./notes/)
 - [SvelteKit](./svelte)
 - [Nuxt.js](./nuxt)
 - [Vue.js](./vue)
