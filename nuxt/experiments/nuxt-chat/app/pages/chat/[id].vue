@@ -5,6 +5,7 @@ import { useClipboard } from '@vueuse/core';
 import type { DefineComponent } from 'vue';
 import ProseStreamPre from '../../components/prose/PreStream.vue';
 import { Chat } from '@ai-sdk/vue';
+import { useTable } from '~/composables/useTable';
 
 const components = {
   pre: ProseStreamPre as unknown as DefineComponent,
@@ -70,10 +71,7 @@ const chat = new Chat({
   id: data.value.id,
   messages: data.value.messages,
   transport: new DefaultChatTransport({
-    api: `/api/chats/${data.value.id}`,
-    body: {
-      // model: model.value
-    },
+    api: `/api/service/chats/${data.value.id}`,
   }),
   onFinish() {
     refreshNuxtData('chats');
@@ -142,14 +140,23 @@ function copy(e: MouseEvent, message: UIMessage) {
                   class="p-0"
                   loading
                 />
+
+                <UTable
+                  v-if="part.type === 'data-sheet'"
+                  :data="(part.data as any[])"
+                  :columns="useTable(part.data as any[])"
+                  class="w-full"
+                />
+
+                <MDCCached
+                  v-else-if="part.type === 'text'"
+                  :value="getTextFromMessage(message)"
+                  :cache-key="message.id"
+                  unwrap="p"
+                  :components="components"
+                  :parser-options="{ highlight: false }"
+                />
               </template>
-              <MDCCached
-                :value="getTextFromMessage(message)"
-                :cache-key="message.id"
-                unwrap="p"
-                :components="components"
-                :parser-options="{ highlight: false }"
-              />
             </div>
           </template>
         </UChatMessages>

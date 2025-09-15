@@ -23,6 +23,8 @@ const lang = computed(() => {
       return 'ts';
     case 'css':
       return 'css';
+    case 'csharp':
+      return 'csharp';
     default:
       return props.language;
   }
