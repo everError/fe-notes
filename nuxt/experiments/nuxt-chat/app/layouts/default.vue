@@ -161,6 +161,5 @@ const items = computed(() =>
         ...groups
       ]"
     />
-    <slot />
   </UDashboardGroup>
 </template>
