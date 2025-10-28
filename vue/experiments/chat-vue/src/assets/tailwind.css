@@ -1,0 +1,9 @@
+@import 'tailwindcss';
+@import 'tailwindcss-primeui';
+
+@import 'primeicons/primeicons.css';
+
+html, body, #app {
+  height: 100%;
+  margin: 0;
+}

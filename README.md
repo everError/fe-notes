@@ -16,6 +16,7 @@
 - [Nuxt](./nuxt)
   - [Nuxt Chat](./nuxt/experiments/nuxt-chat/)
 - [Vue.js](./vue)
+  - [Vue LLM Chat](./vue/experiments/chat-vue/)
 
 ## 폴더 구조
 
