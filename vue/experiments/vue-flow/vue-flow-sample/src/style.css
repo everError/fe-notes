@@ -1,0 +1,107 @@
+@import '@vue-flow/core/dist/style.css';
+@import '@vue-flow/core/dist/theme-default.css';
+@import '@vue-flow/controls/dist/style.css';
+@import '@vue-flow/minimap/dist/style.css';
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #0f172a;
+}
+
+.vue-flow {
+  cursor: default !important;
+}
+
+.vue-flow__pane {
+  cursor: grab !important;
+}
+
+.vue-flow__pane:active {
+  cursor: grabbing !important;
+}
+
+.vue-flow__node {
+  cursor: pointer !important;
+}
+
+.vue-flow__node.selected {
+  outline: none !important;
+}
+
+/* 엣지가 그룹 위에 표시되도록 */
+.vue-flow__edges {
+  z-index: 1 !important;
+}
+
+.vue-flow__edge-path {
+  stroke: #475569;
+  stroke-width: 2;
+  cursor: pointer;
+}
+
+.vue-flow__edge:hover .vue-flow__edge-path {
+  stroke: #6366f1;
+}
+
+.vue-flow__edge.selected .vue-flow__edge-path {
+  stroke: #6366f1;
+  stroke-width: 3;
+}
+
+.vue-flow__connection-line {
+  stroke: #6366f1;
+  stroke-width: 2;
+}
+
+.vue-flow__handle {
+  width: 10px;
+  height: 10px;
+  background: #334155;
+  border: 2px solid #1e293b;
+  opacity: 0.6;
+  transition: all 0.15s ease;
+}
+
+.vue-flow__handle:hover,
+.vue-flow__node:hover .vue-flow__handle {
+  opacity: 1;
+  background: #6366f1;
+}
+
+.vue-flow__minimap {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 6px;
+}
+
+.vue-flow__controls {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.vue-flow__controls-button {
+  background: #1e293b;
+  border-bottom: 1px solid #334155;
+  fill: #94a3b8;
+  width: 24px;
+  height: 24px;
+}
+
+.vue-flow__controls-button:hover {
+  background: #334155;
+}
+
+/* 드래그 타겟 그룹 하이라이트 */
+.drag-target {
+  background-color: rgba(99, 102, 241, 0.2) !important;
+  border-color: #6366f1 !important;
+  border-style: solid !important;
+}
