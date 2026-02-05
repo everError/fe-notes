@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import type { Node, Edge } from "@vue-flow/core";
 import type { NodeData } from "../types";
+import { GROUP_COLORS, DEFAULTS } from "../constants";
 
 const props = defineProps<{
   node: Node<NodeData> | null;
@@ -18,26 +19,40 @@ const emit = defineEmits<{
   setNodeParent: [nodeId: string, parentId: string | null];
 }>();
 
+// ==================== Computed ====================
+
 const nodeData = computed(() => props.node?.data);
 const properties = computed(() => nodeData.value?.properties || {});
 
 const groupNodes = computed(() =>
-  props.allNodes.filter((n) => n.type === "group" && n.id !== props.node?.id),
+  props.allNodes.filter((n) => n.type === "group" && n.id !== props.node?.id)
 );
 
 const currentParent = computed(() => props.node?.parentNode || "");
 const isGroupNode = computed(() => props.node?.type === "group");
 const isMachineNode = computed(() => props.node?.type === "machine");
 
-const nodeWidth = computed(() => props.node?.data?.properties?.width || 250);
-const nodeHeight = computed(() => props.node?.data?.properties?.height || 150);
+const nodeWidth = computed(
+  () => (props.node?.data?.properties?.width as number) || DEFAULTS.nodeWidth
+);
+const nodeHeight = computed(
+  () => (props.node?.data?.properties?.height as number) || DEFAULTS.nodeHeight
+);
+
+const currentColor = computed(() => nodeData.value?.color || "#1e3a5f");
 
 const childNodesCount = computed(() => {
   if (!props.node || !isGroupNode.value) return 0;
   return props.allNodes.filter((n) => n.parentNode === props.node?.id).length;
 });
 
-function updateProperty(key: string, value: string | number) {
+const parentGroup = computed(() =>
+  groupNodes.value.find((g) => g.id === currentParent.value)
+);
+
+// ==================== Update Handlers ====================
+
+function updateProperty(key: string, value: unknown): void {
   if (props.node) {
     emit("update", props.node.id, {
       properties: { ...properties.value, [key]: value },
@@ -45,37 +60,35 @@ function updateProperty(key: string, value: string | number) {
   }
 }
 
-function updateLabel(event: Event) {
+function updateLabel(event: Event): void {
   const target = event.target as HTMLInputElement;
   if (props.node) {
     emit("update", props.node.id, { label: target.value });
   }
 }
 
-function updateDescription(event: Event) {
+function updateDescription(event: Event): void {
   const target = event.target as HTMLInputElement;
   if (props.node) {
     emit("update", props.node.id, { description: target.value });
   }
 }
 
-function updateValue(event: Event) {
+function updateValue(event: Event): void {
   const target = event.target as HTMLInputElement;
   if (props.node) {
-    emit("update", props.node.id, {
-      value: Number(target.value),
-    } as Partial<NodeData>);
+    emit("update", props.node.id, { value: Number(target.value) });
   }
 }
 
-function updateUnit(event: Event) {
+function updateUnit(event: Event): void {
   const target = event.target as HTMLInputElement;
   if (props.node) {
-    emit("update", props.node.id, { unit: target.value } as Partial<NodeData>);
+    emit("update", props.node.id, { unit: target.value });
   }
 }
 
-function updateStatus(event: Event) {
+function updateStatus(event: Event): void {
   const target = event.target as HTMLSelectElement;
   if (props.node) {
     emit("update", props.node.id, {
@@ -84,59 +97,64 @@ function updateStatus(event: Event) {
   }
 }
 
-function updateAnimated(event: Event) {
+function updateAnimated(event: Event): void {
   const target = event.target as HTMLInputElement;
   if (props.node) {
     emit("update", props.node.id, { animated: target.checked });
   }
 }
 
-function handlePropertyInput(key: string, event: Event) {
+function updateColor(color: string): void {
+  if (props.node) {
+    emit("update", props.node.id, { color });
+  }
+}
+
+function handlePropertyInput(key: string, event: Event): void {
   const target = event.target as HTMLInputElement;
   const value = target.type === "number" ? Number(target.value) : target.value;
   updateProperty(key, value);
 }
 
-function deleteEdge(edgeId: string) {
-  emit("deleteEdge", edgeId);
-}
-
-function deleteNode() {
-  if (props.node) {
-    emit("deleteNode", props.node.id);
-  }
-}
-
-function updateWidth(event: Event) {
+function updateWidth(event: Event): void {
   const target = event.target as HTMLInputElement;
   if (props.node) {
-    emit(
-      "updateNodeSize",
-      props.node.id,
-      Number(target.value),
-      nodeHeight.value,
-    );
+    emit("updateNodeSize", props.node.id, Number(target.value), nodeHeight.value);
   }
 }
 
-function updateHeight(event: Event) {
+function updateHeight(event: Event): void {
   const target = event.target as HTMLInputElement;
   if (props.node) {
-    emit(
-      "updateNodeSize",
-      props.node.id,
-      nodeWidth.value,
-      Number(target.value),
-    );
+    emit("updateNodeSize", props.node.id, nodeWidth.value, Number(target.value));
   }
 }
 
-function changeParentGroup(event: Event) {
+function changeParentGroup(event: Event): void {
   const target = event.target as HTMLSelectElement;
   if (props.node) {
     emit("setNodeParent", props.node.id, target.value || null);
   }
 }
+
+function deleteEdge(edgeId: string): void {
+  emit("deleteEdge", edgeId);
+}
+
+function deleteNode(): void {
+  if (props.node) {
+    emit("deleteNode", props.node.id);
+  }
+}
+
+// 숨겨야 할 properties 키
+const hiddenPropertyKeys = ["width", "height", "count", "capacity"];
+
+const visibleProperties = computed(() => {
+  return Object.entries(properties.value).filter(
+    ([key]) => !hiddenPropertyKeys.includes(key)
+  );
+});
 </script>
 
 <template>
@@ -153,14 +171,13 @@ function changeParentGroup(event: Event) {
         </div>
       </div>
 
+      <!-- General -->
       <div class="panel-section">
         <div class="section-title">General</div>
-
         <div class="field">
           <label>Label</label>
           <input type="text" :value="nodeData.label" @input="updateLabel" />
         </div>
-
         <div class="field">
           <label>Description</label>
           <input
@@ -172,10 +189,25 @@ function changeParentGroup(event: Event) {
         </div>
       </div>
 
-      <!-- 그룹 설정 -->
+      <!-- 그룹 노드 색상 -->
+      <div class="panel-section" v-if="isGroupNode">
+        <div class="section-title">Color</div>
+        <div class="color-picker">
+          <button
+            v-for="color in GROUP_COLORS"
+            :key="color.value"
+            class="color-swatch"
+            :class="{ active: currentColor === color.value }"
+            :style="{ backgroundColor: color.value }"
+            :title="color.label"
+            @click="updateColor(color.value)"
+          />
+        </div>
+      </div>
+
+      <!-- Parent Group (그룹 노드가 아닌 경우) -->
       <div class="panel-section" v-if="!isGroupNode">
         <div class="section-title">Parent Group</div>
-
         <div class="field">
           <select :value="currentParent" @change="changeParentGroup">
             <option value="">None</option>
@@ -188,12 +220,18 @@ function changeParentGroup(event: Event) {
             </option>
           </select>
         </div>
+        <div v-if="parentGroup" class="group-indicator">
+          <div
+            class="group-color-dot"
+            :style="{ backgroundColor: parentGroup.data?.color }"
+          ></div>
+          <span class="group-name">{{ parentGroup.data?.label }}</span>
+        </div>
       </div>
 
-      <!-- 그룹 노드 정보 -->
+      <!-- 그룹 노드 크기 -->
       <div class="panel-section" v-if="isGroupNode">
         <div class="section-title">Size</div>
-
         <div class="size-grid">
           <div class="field">
             <label>Width</label>
@@ -201,7 +239,7 @@ function changeParentGroup(event: Event) {
               type="number"
               :value="nodeWidth"
               @input="updateWidth"
-              min="150"
+              :min="DEFAULTS.minNodeWidth"
               step="10"
             />
           </div>
@@ -211,22 +249,20 @@ function changeParentGroup(event: Event) {
               type="number"
               :value="nodeHeight"
               @input="updateHeight"
-              min="100"
+              :min="DEFAULTS.minNodeHeight"
               step="10"
             />
           </div>
         </div>
-
         <div class="info-row" v-if="childNodesCount > 0">
           <span class="info-label">Children</span>
           <span class="info-value">{{ childNodesCount }}</span>
         </div>
       </div>
 
-      <!-- Machine 노드용 (count, capacity) -->
+      <!-- Machine 노드 카운터 -->
       <div class="panel-section" v-if="isMachineNode">
         <div class="section-title">Counter</div>
-
         <div class="size-grid">
           <div class="field">
             <label>Count</label>
@@ -249,31 +285,28 @@ function changeParentGroup(event: Event) {
         </div>
       </div>
 
-      <!-- 모니터링 노드용 -->
+      <!-- Value (모니터링 노드용) -->
       <div
         class="panel-section"
         v-if="nodeData.value !== undefined && !isMachineNode"
       >
         <div class="section-title">Value</div>
-
         <div class="field">
           <label>Current Value</label>
           <input type="number" :value="nodeData.value" @input="updateValue" />
         </div>
-
         <div class="field" v-if="nodeData.unit !== undefined">
           <label>Unit</label>
           <input type="text" :value="nodeData.unit" @input="updateUnit" />
         </div>
       </div>
 
-      <!-- 상태/애니메이션 -->
+      <!-- State -->
       <div
         class="panel-section"
         v-if="nodeData.status !== undefined || nodeData.animated !== undefined"
       >
         <div class="section-title">State</div>
-
         <div class="field" v-if="nodeData.status !== undefined">
           <label>Status</label>
           <select :value="nodeData.status" @change="updateStatus">
@@ -283,7 +316,6 @@ function changeParentGroup(event: Event) {
             <option value="offline">Offline</option>
           </select>
         </div>
-
         <div
           class="field checkbox-field"
           v-if="nodeData.animated !== undefined"
@@ -298,56 +330,42 @@ function changeParentGroup(event: Event) {
         </div>
       </div>
 
-      <!-- 커스텀 속성 -->
-      <div
-        class="panel-section"
-        v-if="
-          Object.keys(properties).filter(
-            (k) => !['width', 'height', 'count', 'capacity'].includes(k),
-          ).length
-        "
-      >
+      <!-- Custom Properties -->
+      <div class="panel-section" v-if="visibleProperties.length > 0">
         <div class="section-title">Properties</div>
-
-        <template v-for="(value, key) in properties" :key="key">
-          <div
-            v-if="
-              !['width', 'height', 'count', 'capacity'].includes(String(key))
-            "
-            class="field"
-          >
-            <label>{{ key }}</label>
-            <input
-              v-if="typeof value !== 'object'"
-              :type="typeof value === 'number' ? 'number' : 'text'"
-              :value="value"
-              @input="handlePropertyInput(String(key), $event)"
-            />
-          </div>
-        </template>
+        <div
+          v-for="[key, value] in visibleProperties"
+          :key="key"
+          class="field"
+        >
+          <label>{{ key }}</label>
+          <input
+            v-if="typeof value !== 'object'"
+            :type="typeof value === 'number' ? 'number' : 'text'"
+            :value="value"
+            @input="handlePropertyInput(String(key), $event)"
+          />
+        </div>
       </div>
 
-      <!-- 연결된 엣지 -->
+      <!-- Connections -->
       <div class="panel-section" v-if="connectedEdges.length">
         <div class="section-title">
           Connections ({{ connectedEdges.length }})
         </div>
-
         <div
           v-for="edgeItem in connectedEdges"
           :key="edgeItem.id"
           class="edge-item"
         >
-          <span class="edge-label"
-            >{{ edgeItem.source }} → {{ edgeItem.target }}</span
-          >
-          <button class="edge-delete" @click="deleteEdge(edgeItem.id)">
-            ✕
-          </button>
+          <span class="edge-label">
+            {{ edgeItem.source }} → {{ edgeItem.target }}
+          </span>
+          <button class="edge-delete" @click="deleteEdge(edgeItem.id)">✕</button>
         </div>
       </div>
 
-      <!-- 삭제 버튼 -->
+      <!-- Delete -->
       <div class="panel-section">
         <button class="delete-btn" @click="deleteNode">🗑️ Delete Node</button>
       </div>
@@ -362,7 +380,6 @@ function changeParentGroup(event: Event) {
           <span class="header-id">{{ edge.id }}</span>
         </div>
       </div>
-
       <div class="panel-section">
         <div class="section-title">Details</div>
         <div class="edge-detail">
@@ -374,7 +391,6 @@ function changeParentGroup(event: Event) {
           <span class="detail-value">{{ edge.target }}</span>
         </div>
       </div>
-
       <div class="panel-section">
         <button class="delete-btn" @click="deleteEdge(edge.id)">
           Delete Connection
@@ -382,7 +398,7 @@ function changeParentGroup(event: Event) {
       </div>
     </template>
 
-    <!-- 아무것도 선택 안됨 -->
+    <!-- Empty -->
     <template v-else>
       <div class="empty-state">
         <div class="empty-icon">⬚</div>
@@ -537,6 +553,53 @@ function changeParentGroup(event: Event) {
   font-size: 11px;
   color: #e2e8f0;
   font-weight: 500;
+}
+
+.color-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.color-swatch {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s;
+  padding: 0;
+}
+
+.color-swatch:hover {
+  transform: scale(1.15);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.color-swatch.active {
+  border-color: #fff;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.5);
+}
+
+.group-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 6px 8px;
+  background: #0f172a;
+  border-radius: 4px;
+}
+
+.group-color-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+}
+
+.group-name {
+  font-size: 11px;
+  color: #e2e8f0;
 }
 
 .edge-item {

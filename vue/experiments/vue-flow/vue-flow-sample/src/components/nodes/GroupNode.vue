@@ -1,37 +1,42 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
-import type { NodeProps } from "@vue-flow/core";
-import type { NodeData } from "../../types";
+import { computed, ref, watch, onUnmounted } from "vue";
+import type { NodeProps } from "../../types";
+import { useNode } from "../../composables/useNode";
+import { DEFAULTS } from "../../constants";
 
-const props = defineProps<NodeProps<NodeData>>();
+const props = defineProps<NodeProps>();
 
 const emit = defineEmits<{
   resize: [width: number, height: number];
 }>();
 
-const isSelected = computed(() => props.selected);
+const { isSelected } = useNode(props);
 
+// 리사이즈 상태
 const isResizing = ref(false);
 const startPos = ref({ x: 0, y: 0 });
 const startSize = ref({ width: 0, height: 0 });
 
-const localWidth = ref(250);
-const localHeight = ref(150);
+// 로컬 크기 상태
+const localWidth = ref<number>(DEFAULTS.nodeWidth);
+const localHeight = ref<number>(DEFAULTS.nodeHeight);
 
+// 초기 크기 설정
 function initSize() {
-  const w = props.data?.properties?.width;
-  const h = props.data?.properties?.height;
+  const w = props.data?.properties?.width as number | undefined;
+  const h = props.data?.properties?.height as number | undefined;
   if (w) localWidth.value = w;
   if (h) localHeight.value = h;
 }
 
 initSize();
 
+// props 변경 감지
 watch(
   () => props.data?.properties?.width,
   (newVal) => {
     if (newVal && !isResizing.value) {
-      localWidth.value = newVal;
+      localWidth.value = newVal as number;
     }
   },
 );
@@ -40,11 +45,12 @@ watch(
   () => props.data?.properties?.height,
   (newVal) => {
     if (newVal && !isResizing.value) {
-      localHeight.value = newVal;
+      localHeight.value = newVal as number;
     }
   },
 );
 
+// 리사이즈 핸들러
 function onResizeStart(event: MouseEvent) {
   isResizing.value = true;
   startPos.value = { x: event.clientX, y: event.clientY };
@@ -62,8 +68,14 @@ function onResizeMove(event: MouseEvent) {
   const dx = event.clientX - startPos.value.x;
   const dy = event.clientY - startPos.value.y;
 
-  localWidth.value = Math.max(150, startSize.value.width + dx);
-  localHeight.value = Math.max(100, startSize.value.height + dy);
+  localWidth.value = Math.max(
+    DEFAULTS.minNodeWidth,
+    startSize.value.width + dx,
+  );
+  localHeight.value = Math.max(
+    DEFAULTS.minNodeHeight,
+    startSize.value.height + dy,
+  );
 }
 
 function onResizeEnd() {
@@ -76,19 +88,14 @@ function onResizeEnd() {
   emit("resize", localWidth.value, localHeight.value);
 }
 
-// 그룹 헤더 색상 (연결선과 구분)
-const headerColor = computed(() => {
-  const color = props.data?.color || "#475569";
-  // 기존 색상 대신 좀 더 구분되는 색상 사용
-  const colorMap: Record<string, string> = {
-    "#475569": "#1e3a5f", // 기본 그룹 -> 진한 파랑
-    "#6366f1": "#4338ca", // 인디고
-    "#10b981": "#047857", // 에메랄드
-    "#f59e0b": "#b45309", // 앰버
-    "#ef4444": "#b91c1c", // 레드
-  };
-  return colorMap[color] || color;
+// 클린업
+onUnmounted(() => {
+  document.removeEventListener("mousemove", onResizeMove);
+  document.removeEventListener("mouseup", onResizeEnd);
 });
+
+// 헤더 색상
+const headerColor = computed(() => props.data?.color || "#1e3a5f");
 </script>
 
 <template>

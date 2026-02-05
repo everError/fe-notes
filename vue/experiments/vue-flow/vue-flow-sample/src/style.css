@@ -161,3 +161,24 @@ body {
 .vue-flow__background pattern line {
   stroke: var(--border-color);
 }
+
+.group-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  background: var(--bg-primary, #0f172a);
+  border-radius: 4px;
+  margin-top: 8px;
+}
+
+.group-color-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+}
+
+.group-name {
+  font-size: 11px;
+  color: var(--text-secondary, #94a3b8);
+}

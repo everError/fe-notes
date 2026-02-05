@@ -1,51 +1,24 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { Handle, Position } from "@vue-flow/core";
-import type { NodeProps } from "@vue-flow/core";
-import type { NodeData } from "../../types";
+import type { NodeProps } from "../../types";
+import { NodeWrapper } from "../common";
+import { useNode } from "../../composables/useNode";
 
-const props = defineProps<NodeProps<NodeData>>();
+const props = defineProps<NodeProps>();
 
-const isSelected = computed(() => props.selected);
-const status = computed(() => props.data?.status || "normal");
-const isAnimated = computed(
-  () => props.data?.animated && status.value === "normal",
+const { status, statusColor, isAnimated } = useNode(props);
+
+const count = computed(() => (props.data?.properties?.count as number) ?? 0);
+const capacity = computed(
+  () => (props.data?.properties?.capacity as number) ?? 100
 );
-
-const statusColor = computed(() => {
-  const colors: Record<string, string> = {
-    normal: "#10b981",
-    warning: "#f59e0b",
-    error: "#ef4444",
-    offline: "#64748b",
-  };
-  return colors[status.value] || colors.normal;
-});
-
-const count = computed(() => props.data?.properties?.count ?? 0);
-const capacity = computed(() => props.data?.properties?.capacity ?? 100);
 const countPercentage = computed(() =>
-  Math.min(100, (count.value / capacity.value) * 100),
+  Math.min(100, (count.value / capacity.value) * 100)
 );
 </script>
 
 <template>
-  <div class="machine-node" :class="{ selected: isSelected }">
-    <Handle id="top" type="source" :position="Position.Top" class="handle" />
-    <Handle
-      id="bottom"
-      type="source"
-      :position="Position.Bottom"
-      class="handle"
-    />
-    <Handle id="left" type="source" :position="Position.Left" class="handle" />
-    <Handle
-      id="right"
-      type="source"
-      :position="Position.Right"
-      class="handle"
-    />
-
+  <NodeWrapper v-bind="$props" node-class="machine-node">
     <!-- 설비 본체 -->
     <div class="machine-body">
       <!-- 상단 표시등 -->
@@ -96,9 +69,9 @@ const countPercentage = computed(() =>
 
     <!-- 라벨 -->
     <div class="machine-label">
-      <span class="label-icon" :style="{ color: data?.color }">{{
-        data?.icon
-      }}</span>
+      <span class="label-icon" :style="{ color: data?.color }">
+        {{ data?.icon }}
+      </span>
       <span class="label-text">{{ data?.label }}</span>
     </div>
 
@@ -106,32 +79,20 @@ const countPercentage = computed(() =>
     <div class="status-badge" :style="{ backgroundColor: statusColor }">
       {{ status }}
     </div>
-  </div>
+  </NodeWrapper>
 </template>
 
 <style scoped>
 .machine-node {
-  background: #1e293b;
-  border: 2px solid #334155;
-  border-radius: 8px;
   min-width: 140px;
   padding: 0;
-  transition: all 0.15s ease;
-}
-
-.machine-node:hover {
-  border-color: #475569;
-}
-
-.machine-node.selected {
-  border-color: #6366f1;
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+  border-width: 2px;
 }
 
 .machine-body {
   padding: 10px;
   background: #0f172a;
-  border-radius: 6px 6px 0 0;
+  border-radius: 8px 8px 0 0;
   border-bottom: 2px solid #334155;
 }
 
@@ -262,23 +223,6 @@ const countPercentage = computed(() =>
   padding: 2px 6px;
   border-radius: 4px;
   text-transform: uppercase;
-}
-
-.handle {
-  width: 8px;
-  height: 8px;
-  background: #475569;
-  border: 2px solid #1e293b;
-  opacity: 0;
-  transition: all 0.15s ease;
-}
-
-.machine-node:hover .handle {
-  opacity: 1;
-}
-
-.handle:hover {
-  background: #6366f1;
-  transform: scale(1.2);
+  z-index: 10;
 }
 </style>

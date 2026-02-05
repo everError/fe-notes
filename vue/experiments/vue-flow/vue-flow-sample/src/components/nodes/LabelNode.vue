@@ -1,20 +1,32 @@
 <script setup lang="ts">
-import { computed } from "vue";
-import type { NodeProps } from "@vue-flow/core";
-import type { NodeData } from "../../types";
+import type { NodeProps } from "../../types";
+import { useNode } from "../../composables/useNode";
 
-const props = defineProps<NodeProps<NodeData>>();
+const props = defineProps<NodeProps>();
 
-const isSelected = computed(() => props.selected);
+const { isSelected, hasParent, groupColor } = useNode(props);
 </script>
 
 <template>
-  <div class="label-node" :class="{ selected: isSelected }">
+  <div
+    class="label-node"
+    :class="{ selected: isSelected, 'in-group': hasParent }"
+    :style="{ '--group-color': groupColor || 'transparent' }"
+  >
     <div class="label-text" :style="{ color: data?.color || '#f1f5f9' }">
       {{ data?.label }}
     </div>
     <div class="label-desc" v-if="data?.description">
       {{ data.description }}
+    </div>
+
+    <!-- 그룹 뱃지 -->
+    <div
+      v-if="hasParent"
+      class="group-badge"
+      :style="{ backgroundColor: groupColor || '#475569' }"
+    >
+      ▤
     </div>
   </div>
 </template>
@@ -27,6 +39,11 @@ const isSelected = computed(() => props.selected);
   border-radius: 6px;
   transition: all 0.15s ease;
   cursor: move;
+  position: relative;
+}
+
+.label-node.in-group {
+  box-shadow: 0 0 0 2px var(--group-color, transparent);
 }
 
 .label-node:hover {
@@ -47,5 +64,20 @@ const isSelected = computed(() => props.selected);
   font-size: 11px;
   color: #64748b;
   margin-top: 2px;
+}
+
+.group-badge {
+  position: absolute;
+  top: -8px;
+  left: -8px;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: white;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 }
 </style>

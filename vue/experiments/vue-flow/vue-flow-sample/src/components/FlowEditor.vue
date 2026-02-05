@@ -6,36 +6,50 @@ import type {
   EdgeMouseEvent,
   Connection,
   NodeDragEvent,
+  Node,
+  Edge,
 } from "@vue-flow/core";
 import { Background, BackgroundVariant } from "@vue-flow/background";
 import { Controls } from "@vue-flow/controls";
 import { MiniMap } from "@vue-flow/minimap";
-import CustomNode from "./nodes/CustomNode.vue";
-import GaugeNode from "./nodes/GaugeNode.vue";
-import TankNode from "./nodes/TankNode.vue";
-import StatusNode from "./nodes/StatusNode.vue";
-import EquipmentNode from "./nodes/EquipmentNode.vue";
-import MachineNode from "./nodes/MachineNode.vue";
-import GroupNode from "./nodes/GroupNode.vue";
-import LabelNode from "./nodes/LabelNode.vue";
+
+// 노드 컴포넌트
+import {
+  CustomNode,
+  GaugeNode,
+  TankNode,
+  StatusNode,
+  EquipmentNode,
+  MachineNode,
+  GroupNode,
+  LabelNode,
+} from "./nodes";
+
+// 기타 컴포넌트
 import NodePalette from "./NodePalette.vue";
 import PropertyPanel from "./PropertyPanel.vue";
 import Toolbar from "./Toolbar.vue";
 import ContextMenu from "./ContextMenu.vue";
-import type { MenuItem } from "./ContextMenu.vue";
+
+// 타입 & 상수 & 스토어
+import type { NodeTemplate, NodeData, MenuItem } from "../types";
+import { getRandomGroupColor } from "../constants";
 import { useFlowStore } from "../stores/flowStore";
-import type { NodeTemplate, NodeData } from "../types";
-import type { Node, Edge } from "@vue-flow/core";
+
+// ==================== Store & VueFlow ====================
 
 const store = useFlowStore();
 const { onConnect, addEdges, project, onNodeDragStop } = useVueFlow();
 
+// ==================== State ====================
+
+const flowContainer = ref<HTMLDivElement | null>(null);
 const selectedEdgeId = ref<string | null>(null);
 const isSimulating = ref(false);
 const dragOverGroupId = ref<string | null>(null);
 let simulationInterval: number | null = null;
+let nodeIdCounter = 0;
 
-// Context Menu
 const contextMenu = ref<{
   show: boolean;
   x: number;
@@ -47,6 +61,8 @@ const contextMenu = ref<{
   y: 0,
   items: [],
 });
+
+// ==================== Computed ====================
 
 const selectedEdge = computed(
   () => store.edges.value.find((e) => e.id === selectedEdgeId.value) || null,
@@ -60,7 +76,6 @@ const connectedEdges = computed(() => {
   );
 });
 
-// 연결선 기본 옵션 (방향 표시 화살표)
 const defaultEdgeOptions = computed(() => ({
   type: "smoothstep",
   zIndex: 1,
@@ -77,8 +92,24 @@ const defaultEdgeOptions = computed(() => ({
   },
 }));
 
-let nodeId = 0;
-const getId = () => `node_${nodeId++}`;
+// ==================== Helpers ====================
+
+const generateNodeId = () => `node_${nodeIdCounter++}`;
+
+function getClientPosition(event: MouseEvent | TouchEvent): {
+  x: number;
+  y: number;
+} {
+  if ("clientX" in event) {
+    return { x: event.clientX, y: event.clientY };
+  }
+  return {
+    x: event.touches[0]!.clientX,
+    y: event.touches[0]!.clientY,
+  };
+}
+
+// ==================== Connection Events ====================
 
 onConnect((connection: Connection) => {
   if (!connection.source || !connection.target) return;
@@ -99,11 +130,10 @@ onNodeDragStop((event: NodeDragEvent) => {
   const draggedNode = event.node;
   dragOverGroupId.value = null;
 
-  // 위치 저장 (히스토리)
   store.saveHistory();
 
-  if (draggedNode.type === "group") return;
-  if (draggedNode.parentNode) return;
+  // 그룹 노드나 이미 부모가 있는 노드는 스킵
+  if (draggedNode.type === "group" || draggedNode.parentNode) return;
 
   const nodeCenter = {
     x: draggedNode.position.x + 80,
@@ -111,15 +141,14 @@ onNodeDragStop((event: NodeDragEvent) => {
   };
 
   const group = store.findGroupAtPosition(nodeCenter, draggedNode.id);
-
   if (group) {
     store.setNodeParent(draggedNode.id, group.id);
   }
 });
 
-const flowContainer = ref<HTMLDivElement | null>(null);
+// ==================== Drag & Drop ====================
 
-function onDragOver(event: DragEvent) {
+function onDragOver(event: DragEvent): void {
   event.preventDefault();
   if (event.dataTransfer) {
     event.dataTransfer.dropEffect = "move";
@@ -138,11 +167,11 @@ function onDragOver(event: DragEvent) {
   }
 }
 
-function onDragLeave() {
+function onDragLeave(): void {
   dragOverGroupId.value = null;
 }
 
-function onDrop(event: DragEvent) {
+function onDrop(event: DragEvent): void {
   event.preventDefault();
   dragOverGroupId.value = null;
 
@@ -150,14 +179,17 @@ function onDrop(event: DragEvent) {
   if (!data || !flowContainer.value) return;
 
   const template: NodeTemplate = JSON.parse(data);
-
   const bounds = flowContainer.value.getBoundingClientRect();
   const position = project({
     x: event.clientX - bounds.left,
     y: event.clientY - bounds.top,
   });
 
-  const newNodeId = getId();
+  const newNodeId = generateNodeId();
+
+  // 그룹 노드는 랜덤 색상 적용
+  const nodeColor =
+    template.type === "group" ? getRandomGroupColor() : template.color;
 
   const newNode: Node<NodeData> = {
     id: newNodeId,
@@ -167,7 +199,7 @@ function onDrop(event: DragEvent) {
     data: {
       label: template.label,
       description: "",
-      color: template.color,
+      color: nodeColor,
       icon: template.icon,
       properties: { ...template.defaultProperties },
       ...template.defaultProperties,
@@ -176,6 +208,7 @@ function onDrop(event: DragEvent) {
 
   store.addNode(newNode);
 
+  // 그룹 영역에 드롭된 경우 부모 설정
   if (template.type !== "group") {
     const group = store.findGroupAtPosition(position);
     if (group) {
@@ -187,97 +220,87 @@ function onDrop(event: DragEvent) {
   selectedEdgeId.value = null;
 }
 
-function onNodeClick({ node }: NodeMouseEvent) {
+// ==================== Selection Events ====================
+
+function onNodeClick({ node }: NodeMouseEvent): void {
   store.selectNode(node.id);
   selectedEdgeId.value = null;
   contextMenu.value.show = false;
 }
 
-function onEdgeClick({ edge }: EdgeMouseEvent) {
+function onEdgeClick({ edge }: EdgeMouseEvent): void {
   selectedEdgeId.value = edge.id;
   store.selectNode(null);
   contextMenu.value.show = false;
 }
 
-function onPaneClick() {
+function onPaneClick(): void {
   store.selectNode(null);
   selectedEdgeId.value = null;
   contextMenu.value.show = false;
 }
 
-// Context Menu
-function onNodeContextMenu(event: MouseEvent | TouchEvent, node: Node) {
+// ==================== Context Menu ====================
+
+function showContextMenu(
+  event: MouseEvent | TouchEvent,
+  items: MenuItem[],
+): void {
+  const pos = getClientPosition(event);
+  contextMenu.value = {
+    show: true,
+    x: pos.x,
+    y: pos.y,
+    items,
+  };
+}
+
+function onNodeContextMenu(event: MouseEvent | TouchEvent, node: Node): void {
   event.preventDefault();
   store.selectNode(node.id);
 
-  const x = "clientX" in event ? event.clientX : event.touches[0]!.clientX;
-  const y = "clientY" in event ? event.clientY : event.touches[0]!.clientY;
-
-  contextMenu.value = {
-    show: true,
-    x,
-    y,
-    items: [
-      { label: "Duplicate", icon: "📋", action: () => duplicateNode(node.id) },
-      { label: "Delete", icon: "🗑️", action: () => store.removeNode(node.id) },
-      { divider: true, label: "", action: () => {} },
-      {
-        label: "Bring to Front",
-        icon: "⬆",
-        action: () => bringToFront(node.id),
-      },
-      { label: "Send to Back", icon: "⬇", action: () => sendToBack(node.id) },
-    ],
-  };
+  showContextMenu(event, [
+    { label: "Duplicate", icon: "📋", action: () => duplicateNode(node.id) },
+    { label: "Delete", icon: "🗑️", action: () => store.removeNode(node.id) },
+    { divider: true, label: "", action: () => {} },
+    { label: "Bring to Front", icon: "⬆", action: () => bringToFront(node.id) },
+    { label: "Send to Back", icon: "⬇", action: () => sendToBack(node.id) },
+  ]);
 }
 
-function onEdgeContextMenu(event: MouseEvent | TouchEvent, edge: Edge) {
+function onEdgeContextMenu(event: MouseEvent | TouchEvent, edge: Edge): void {
   event.preventDefault();
   selectedEdgeId.value = edge.id;
 
-  const x = "clientX" in event ? event.clientX : event?.touches[0]!.clientX;
-  const y = "clientY" in event ? event.clientY : event.touches[0]!.clientY;
-
-  contextMenu.value = {
-    show: true,
-    x,
-    y,
-    items: [
-      {
-        label: "Delete Connection",
-        icon: "🗑️",
-        action: () => store.removeEdge(edge.id),
-      },
-    ],
-  };
+  showContextMenu(event, [
+    {
+      label: "Delete Connection",
+      icon: "🗑️",
+      action: () => store.removeEdge(edge.id),
+    },
+  ]);
 }
 
-function onPaneContextMenu(event: MouseEvent | TouchEvent) {
+function onPaneContextMenu(event: MouseEvent | TouchEvent): void {
   event.preventDefault();
 
-  const x = "clientX" in event ? event.clientX : event.touches[0]!.clientX;
-  const y = "clientY" in event ? event.clientY : event.touches[0]!.clientY;
-
-  contextMenu.value = {
-    show: true,
-    x,
-    y,
-    items: [
-      { label: "Paste", icon: "📋", action: () => {}, disabled: true },
-      { divider: true, label: "", action: () => {} },
-      { label: "Select All", icon: "☑", action: selectAll },
-      { label: "Fit View", icon: "⊞", action: fitView },
-    ],
-  };
+  showContextMenu(event, [
+    { label: "Paste", icon: "📋", action: () => {}, disabled: true },
+    { divider: true, label: "", action: () => {} },
+    { label: "Select All", icon: "☑", action: selectAll },
+    { label: "Fit View", icon: "⊞", action: fitView },
+  ]);
 }
 
-function duplicateNode(nodeId: string) {
+// ==================== Node Actions ====================
+
+function duplicateNode(nodeId: string): void {
   const node = store.nodes.value.find((n) => n.id === nodeId);
   if (!node) return;
 
   const newNode: Node<NodeData> = {
     ...JSON.parse(JSON.stringify(node)),
-    id: getId(),
+    id: generateNodeId(),
     position: {
       x: node.position.x + 50,
       y: node.position.y + 50,
@@ -289,57 +312,62 @@ function duplicateNode(nodeId: string) {
   store.selectNode(newNode.id);
 }
 
-function bringToFront(nodeId: string) {
+function bringToFront(nodeId: string): void {
   const node = store.nodes.value.find((n) => n.id === nodeId);
   if (node && node.type !== "group") {
     node.zIndex = 100;
   }
 }
 
-function sendToBack(nodeId: string) {
+function sendToBack(nodeId: string): void {
   const node = store.nodes.value.find((n) => n.id === nodeId);
   if (node && node.type !== "group") {
     node.zIndex = 0;
   }
 }
 
-function selectAll() {
-  store.nodes.value.forEach((n: any) => (n.selected = true));
+function selectAll(): void {
+  store.nodes.value.forEach((n: any) => {
+    n.selected = true;
+  });
 }
 
-function fitView() {
-  // VueFlow의 fitView 사용
+function fitView(): void {
+  // VueFlow의 fitView는 useVueFlow에서 가져올 수 있음
 }
 
-function onPropertyUpdate(nodeId: string, data: Partial<NodeData>) {
+// ==================== Property Panel Events ====================
+
+function onPropertyUpdate(nodeId: string, data: Partial<NodeData>): void {
   store.updateNodeData(nodeId, data);
 }
 
-function onDeleteEdge(edgeId: string) {
+function onDeleteEdge(edgeId: string): void {
   store.removeEdge(edgeId);
   if (selectedEdgeId.value === edgeId) {
     selectedEdgeId.value = null;
   }
 }
 
-function onDeleteNode(nodeId: string) {
+function onDeleteNode(nodeId: string): void {
   store.removeNode(nodeId);
 }
 
-function onUpdateNodeSize(nodeId: string, width: number, height: number) {
+function onUpdateNodeSize(nodeId: string, width: number, height: number): void {
   store.updateNodeSize(nodeId, width, height);
 }
 
-function onSetNodeParent(nodeId: string, parentId: string | null) {
+function onSetNodeParent(nodeId: string, parentId: string | null): void {
   store.setNodeParent(nodeId, parentId);
 }
 
-function onGroupResize(nodeId: string, width: number, height: number) {
+function onGroupResize(nodeId: string, width: number, height: number): void {
   store.updateNodeSize(nodeId, width, height);
 }
 
-// 실시간 시뮬레이션
-function toggleSimulation() {
+// ==================== Simulation ====================
+
+function toggleSimulation(): void {
   isSimulating.value = !isSimulating.value;
 
   // 엣지 애니메이션 토글
@@ -352,6 +380,7 @@ function toggleSimulation() {
       store.nodes.value.forEach((node) => {
         if (!node.data) return;
 
+        // 값 시뮬레이션
         if (node.data.value !== undefined) {
           const min = node.data.minValue ?? 0;
           const max = node.data.maxValue ?? 100;
@@ -363,6 +392,7 @@ function toggleSimulation() {
           );
           node.data.value = Math.round(newValue * 10) / 10;
 
+          // 상태 업데이트
           const percentage = ((newValue - min) / range) * 100;
           if (percentage >= 90) {
             node.data.status = "error";
@@ -373,12 +403,13 @@ function toggleSimulation() {
           }
         }
 
+        // Machine 노드 카운트 시뮬레이션
         if (
           node.type === "machine" &&
           node.data.properties?.count !== undefined
         ) {
-          const capacity = node.data.properties.capacity || 100;
-          const currentCount = node.data.properties.count || 0;
+          const capacity = (node.data.properties.capacity as number) || 100;
+          const currentCount = (node.data.properties.count as number) || 0;
 
           if (node.data.status === "normal" && node.data.animated) {
             const increment = Math.floor(Math.random() * 3) + 1;
@@ -387,12 +418,13 @@ function toggleSimulation() {
               currentCount + increment,
             );
 
-            if (node.data.properties.count >= capacity) {
+            if ((node.data.properties.count as number) >= capacity) {
               node.data.properties.count = 0;
             }
           }
         }
 
+        // 랜덤 상태 변화
         if (node.data.status && Math.random() < 0.02) {
           const statuses: NodeData["status"][] = ["normal", "warning", "error"];
           node.data.status =
@@ -408,13 +440,15 @@ function toggleSimulation() {
   }
 }
 
-function saveToDatabase() {
+function saveToDatabase(): void {
   const data = store.serialize();
   console.log("Save data:", JSON.stringify(data, null, 2));
   alert("Check console for save data!");
 }
 
-function onKeyDown(event: KeyboardEvent) {
+// ==================== Keyboard Events ====================
+
+function onKeyDown(event: KeyboardEvent): void {
   // Undo/Redo
   if ((event.ctrlKey || event.metaKey) && event.key === "z") {
     event.preventDefault();
@@ -432,13 +466,13 @@ function onKeyDown(event: KeyboardEvent) {
     return;
   }
 
-  if (
-    (event.target as HTMLElement).tagName === "INPUT" ||
-    (event.target as HTMLElement).tagName === "TEXTAREA"
-  ) {
+  // Input/Textarea에서는 Delete/Backspace 무시
+  const target = event.target as HTMLElement;
+  if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") {
     return;
   }
 
+  // Delete/Backspace
   if (event.key === "Delete" || event.key === "Backspace") {
     if (store.selectedNodeId.value) {
       store.removeNode(store.selectedNodeId.value);
@@ -448,6 +482,8 @@ function onKeyDown(event: KeyboardEvent) {
     }
   }
 }
+
+// ==================== Lifecycle ====================
 
 onMounted(() => {
   document.addEventListener("keydown", onKeyDown);
@@ -460,7 +496,9 @@ onUnmounted(() => {
   }
 });
 
-function getGroupClass(nodeId: string) {
+// ==================== Utils ====================
+
+function getGroupClass(nodeId: string): string {
   return dragOverGroupId.value === nodeId ? "drag-target" : "";
 }
 </script>
@@ -495,6 +533,7 @@ function getGroupClass(nodeId: string) {
         :min-zoom="0.2"
         :max-zoom="4"
       >
+        <!-- 커스텀 노드 템플릿 -->
         <template #node-custom="nodeProps">
           <CustomNode v-bind="nodeProps" />
         </template>

@@ -1,40 +1,15 @@
 <script setup lang="ts">
-import { computed } from "vue";
-import { Handle, Position } from "@vue-flow/core";
-import type { NodeProps } from "@vue-flow/core";
-import type { NodeData } from "../../types";
+import type { NodeProps } from "../../types";
+import { NodeWrapper } from "../common";
+import { useNode } from "../../composables/useNode";
 
-const props = defineProps<NodeProps<NodeData>>();
+const props = defineProps<NodeProps>();
 
-const fillPercentage = computed(() => {
-  const val = props.data?.value ?? 0;
-  const min = props.data?.minValue ?? 0;
-  const max = props.data?.maxValue ?? 100;
-  return Math.min(100, Math.max(0, ((val - min) / (max - min)) * 100));
-});
-
-const fillColor = computed(() => props.data?.color || "#3b82f6");
-const isSelected = computed(() => props.selected);
-const isAnimated = computed(() => props.data?.animated);
+const { percentage, isAnimated } = useNode(props);
 </script>
 
 <template>
-  <div class="tank-node" :class="{ selected: isSelected }">
-    <Handle id="left" type="source" :position="Position.Left" class="handle" />
-    <Handle
-      id="right"
-      type="source"
-      :position="Position.Right"
-      class="handle"
-    />
-    <Handle id="top" type="source" :position="Position.Top" class="handle" />
-    <Handle
-      id="bottom"
-      type="source"
-      :position="Position.Bottom"
-      class="handle"
-    />
-
+  <NodeWrapper v-bind="$props" node-class="tank-node">
     <div class="node-label">{{ data?.label }}</div>
 
     <div class="tank-container">
@@ -43,38 +18,25 @@ const isAnimated = computed(() => props.data?.animated);
           class="tank-fill"
           :class="{ animated: isAnimated }"
           :style="{
-            height: fillPercentage + '%',
-            backgroundColor: fillColor,
+            height: percentage + '%',
+            backgroundColor: data?.color || '#3b82f6',
           }"
         >
           <div class="tank-wave" v-if="isAnimated"></div>
         </div>
-        <div class="tank-level">{{ fillPercentage.toFixed(0) }}%</div>
+        <div class="tank-level">{{ percentage.toFixed(0) }}%</div>
       </div>
     </div>
 
     <div class="tank-value">{{ data?.value ?? 0 }} {{ data?.unit || "L" }}</div>
-  </div>
+  </NodeWrapper>
 </template>
 
 <style scoped>
 .tank-node {
-  background: #1e293b;
-  border: 1px solid #334155;
-  border-radius: 10px;
   padding: 12px;
   min-width: 100px;
   text-align: center;
-  transition: all 0.15s ease;
-}
-
-.tank-node:hover {
-  border-color: #475569;
-}
-
-.tank-node.selected {
-  border-color: #6366f1;
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
 }
 
 .node-label {
@@ -148,23 +110,5 @@ const isAnimated = computed(() => props.data?.animated);
   font-size: 12px;
   font-weight: 600;
   color: #e2e8f0;
-}
-
-.handle {
-  width: 8px;
-  height: 8px;
-  background: #475569;
-  border: 2px solid #1e293b;
-  opacity: 0;
-  transition: all 0.15s ease;
-}
-
-.tank-node:hover .handle {
-  opacity: 1;
-}
-
-.handle:hover {
-  background: #6366f1;
-  transform: scale(1.2);
 }
 </style>

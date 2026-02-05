@@ -1,46 +1,21 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { Handle, Position } from "@vue-flow/core";
-import type { NodeProps } from "@vue-flow/core";
-import type { NodeData } from "../../types";
+import type { NodeProps } from "../../types";
+import { NodeWrapper } from "../common";
+import { useNode } from "../../composables/useNode";
+import { STATUS_CONFIG } from "../../constants";
 
-const props = defineProps<NodeProps<NodeData>>();
+const props = defineProps<NodeProps>();
 
-const isSelected = computed(() => props.selected);
-const status = computed(() => props.data?.status || "normal");
+const { status, isAnimated } = useNode(props);
 
 const statusConfig = computed(() => {
-  const configs = {
-    normal: { color: "#10b981", label: "Normal", icon: "●" },
-    warning: { color: "#f59e0b", label: "Warning", icon: "▲" },
-    error: { color: "#ef4444", label: "Error", icon: "■" },
-    offline: { color: "#64748b", label: "Offline", icon: "○" },
-  };
-  return configs[status.value] || configs.normal;
+  return STATUS_CONFIG[status.value] || STATUS_CONFIG.normal;
 });
-
-const isAnimated = computed(
-  () => props.data?.animated && status.value !== "offline",
-);
 </script>
 
 <template>
-  <div class="status-node" :class="{ selected: isSelected }">
-    <Handle id="left" type="source" :position="Position.Left" class="handle" />
-    <Handle
-      id="right"
-      type="source"
-      :position="Position.Right"
-      class="handle"
-    />
-    <Handle id="top" type="source" :position="Position.Top" class="handle" />
-    <Handle
-      id="bottom"
-      type="source"
-      :position="Position.Bottom"
-      class="handle"
-    />
-
+  <NodeWrapper v-bind="$props" node-class="status-node">
     <div class="status-indicator" :class="{ pulse: isAnimated }">
       <span
         class="status-dot"
@@ -58,29 +33,16 @@ const isAnimated = computed(
     <div class="node-value" v-if="data?.value !== undefined">
       {{ data.value }}{{ data?.unit }}
     </div>
-  </div>
+  </NodeWrapper>
 </template>
 
 <style scoped>
 .status-node {
-  background: #1e293b;
-  border: 1px solid #334155;
-  border-radius: 10px;
   padding: 12px;
   min-width: 120px;
   display: flex;
   align-items: center;
   gap: 10px;
-  transition: all 0.15s ease;
-}
-
-.status-node:hover {
-  border-color: #475569;
-}
-
-.status-node.selected {
-  border-color: #6366f1;
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
 }
 
 .status-indicator {
@@ -130,23 +92,5 @@ const isAnimated = computed(
   font-weight: 700;
   color: #e2e8f0;
   font-family: monospace;
-}
-
-.handle {
-  width: 8px;
-  height: 8px;
-  background: #475569;
-  border: 2px solid #1e293b;
-  opacity: 0;
-  transition: all 0.15s ease;
-}
-
-.status-node:hover .handle {
-  opacity: 1;
-}
-
-.handle:hover {
-  background: #6366f1;
-  transform: scale(1.2);
 }
 </style>
