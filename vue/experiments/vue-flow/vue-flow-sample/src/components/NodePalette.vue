@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from "vue";
 import type { NodeTemplate } from "../types";
+import NodePreview from "./NodePreview.vue";
 
 const nodeTemplates: NodeTemplate[] = [
   // Basic
@@ -105,12 +106,66 @@ const nodeTemplates: NodeTemplate[] = [
     category: "Equipment",
   },
 
+  // Machine
+  {
+    type: "machine",
+    label: "Conveyor",
+    icon: "▤",
+    color: "#06b6d4",
+    defaultProperties: {
+      status: "normal",
+      count: 0,
+      capacity: 100,
+      animated: true,
+    },
+    category: "Machine",
+  },
+  {
+    type: "machine",
+    label: "Assembly",
+    icon: "⚒",
+    color: "#8b5cf6",
+    defaultProperties: {
+      status: "normal",
+      count: 45,
+      capacity: 100,
+      animated: true,
+    },
+    category: "Machine",
+  },
+  {
+    type: "machine",
+    label: "Packing",
+    icon: "☐",
+    color: "#f59e0b",
+    defaultProperties: {
+      status: "normal",
+      count: 120,
+      capacity: 200,
+      animated: false,
+    },
+    category: "Machine",
+  },
+  {
+    type: "machine",
+    label: "Inspector",
+    icon: "◎",
+    color: "#10b981",
+    defaultProperties: {
+      status: "normal",
+      count: 98,
+      capacity: 100,
+      animated: true,
+    },
+    category: "Machine",
+  },
+
   // Layout
   {
     type: "group",
     label: "Group",
     icon: "▤",
-    color: "#475569",
+    color: "#1e3a5f",
     defaultProperties: { description: "Area", width: 250, height: 150 },
     category: "Layout",
   },
@@ -121,7 +176,11 @@ const categories = computed(() => {
   return cats;
 });
 
-const expandedCategories = ref<Set<string>>(new Set(["Basic", "Monitoring"]));
+const expandedCategories = ref<Set<string>>(new Set(["Basic", "Machine"]));
+
+// 노드 미리보기
+const previewTemplate = ref<NodeTemplate | null>(null);
+const previewPosition = ref({ x: 0, y: 0 });
 
 function toggleCategory(cat: string) {
   if (expandedCategories.value.has(cat)) {
@@ -140,6 +199,20 @@ function onDragStart(event: DragEvent, template: NodeTemplate) {
     event.dataTransfer.setData("application/vueflow", JSON.stringify(template));
     event.dataTransfer.effectAllowed = "move";
   }
+  previewTemplate.value = null;
+}
+
+function onMouseEnter(event: MouseEvent, template: NodeTemplate) {
+  const rect = (event.target as HTMLElement).getBoundingClientRect();
+  previewPosition.value = {
+    x: rect.right + 10,
+    y: rect.top,
+  };
+  previewTemplate.value = template;
+}
+
+function onMouseLeave() {
+  previewTemplate.value = null;
 }
 </script>
 
@@ -168,6 +241,8 @@ function onDragStart(event: DragEvent, template: NodeTemplate) {
             class="palette-item"
             draggable="true"
             @dragstart="onDragStart($event, template)"
+            @mouseenter="onMouseEnter($event, template)"
+            @mouseleave="onMouseLeave"
           >
             <div class="item-icon" :style="{ color: template.color }">
               {{ template.icon }}
@@ -177,14 +252,22 @@ function onDragStart(event: DragEvent, template: NodeTemplate) {
         </div>
       </div>
     </div>
+
+    <!-- 노드 미리보기 -->
+    <NodePreview
+      v-if="previewTemplate"
+      :template="previewTemplate"
+      :x="previewPosition.x"
+      :y="previewPosition.y"
+    />
   </div>
 </template>
 
 <style scoped>
 .node-palette {
   width: 160px;
-  background: #1e293b;
-  border-right: 1px solid #334155;
+  background: var(--bg-secondary, #1e293b);
+  border-right: 1px solid var(--border-color, #334155);
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -192,13 +275,13 @@ function onDragStart(event: DragEvent, template: NodeTemplate) {
 
 .palette-header {
   padding: 12px;
-  border-bottom: 1px solid #334155;
+  border-bottom: 1px solid var(--border-color, #334155);
 }
 
 .header-title {
   font-size: 11px;
   font-weight: 600;
-  color: #94a3b8;
+  color: var(--text-secondary, #94a3b8);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
@@ -209,7 +292,7 @@ function onDragStart(event: DragEvent, template: NodeTemplate) {
 }
 
 .category {
-  border-bottom: 1px solid #334155;
+  border-bottom: 1px solid var(--border-color, #334155);
 }
 
 .category-header {
@@ -222,12 +305,12 @@ function onDragStart(event: DragEvent, template: NodeTemplate) {
 }
 
 .category-header:hover {
-  background: #334155;
+  background: var(--bg-hover, #334155);
 }
 
 .category-icon {
   font-size: 10px;
-  color: #64748b;
+  color: var(--text-muted, #64748b);
   width: 12px;
 }
 
@@ -235,13 +318,13 @@ function onDragStart(event: DragEvent, template: NodeTemplate) {
   flex: 1;
   font-size: 11px;
   font-weight: 600;
-  color: #e2e8f0;
+  color: var(--text-primary, #e2e8f0);
 }
 
 .category-count {
   font-size: 10px;
-  color: #64748b;
-  background: #0f172a;
+  color: var(--text-muted, #64748b);
+  background: var(--bg-primary, #0f172a);
   padding: 2px 6px;
   border-radius: 8px;
 }
@@ -255,8 +338,8 @@ function onDragStart(event: DragEvent, template: NodeTemplate) {
   align-items: center;
   gap: 8px;
   padding: 8px;
-  background: #0f172a;
-  border: 1px solid #334155;
+  background: var(--bg-primary, #0f172a);
+  border: 1px solid var(--border-color, #334155);
   border-radius: 6px;
   cursor: grab;
   transition: all 0.15s ease;
@@ -268,8 +351,8 @@ function onDragStart(event: DragEvent, template: NodeTemplate) {
 }
 
 .palette-item:hover {
-  border-color: #475569;
-  background: #1e293b;
+  border-color: var(--border-hover, #475569);
+  background: var(--bg-secondary, #1e293b);
 }
 
 .palette-item:active {
@@ -280,7 +363,7 @@ function onDragStart(event: DragEvent, template: NodeTemplate) {
 .item-icon {
   width: 22px;
   height: 22px;
-  background: #1e293b;
+  background: var(--bg-secondary, #1e293b);
   border-radius: 4px;
   display: flex;
   align-items: center;
@@ -291,6 +374,6 @@ function onDragStart(event: DragEvent, template: NodeTemplate) {
 .item-label {
   font-size: 11px;
   font-weight: 500;
-  color: #e2e8f0;
+  color: var(--text-primary, #e2e8f0);
 }
 </style>

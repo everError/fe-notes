@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from "vue";
-import { VueFlow, useVueFlow } from "@vue-flow/core";
+import { VueFlow, useVueFlow, MarkerType } from "@vue-flow/core";
 import type {
   NodeMouseEvent,
   EdgeMouseEvent,
   Connection,
   NodeDragEvent,
-  GraphNode,
 } from "@vue-flow/core";
 import { Background, BackgroundVariant } from "@vue-flow/background";
 import { Controls } from "@vue-flow/controls";
@@ -16,22 +15,38 @@ import GaugeNode from "./nodes/GaugeNode.vue";
 import TankNode from "./nodes/TankNode.vue";
 import StatusNode from "./nodes/StatusNode.vue";
 import EquipmentNode from "./nodes/EquipmentNode.vue";
+import MachineNode from "./nodes/MachineNode.vue";
 import GroupNode from "./nodes/GroupNode.vue";
 import LabelNode from "./nodes/LabelNode.vue";
 import NodePalette from "./NodePalette.vue";
 import PropertyPanel from "./PropertyPanel.vue";
+import Toolbar from "./Toolbar.vue";
+import ContextMenu from "./ContextMenu.vue";
+import type { MenuItem } from "./ContextMenu.vue";
 import { useFlowStore } from "../stores/flowStore";
 import type { NodeTemplate, NodeData } from "../types";
 import type { Node, Edge } from "@vue-flow/core";
 
 const store = useFlowStore();
-const { onConnect, addEdges, project, onNodeDrag, onNodeDragStop } =
-  useVueFlow();
+const { onConnect, addEdges, project, onNodeDragStop } = useVueFlow();
 
 const selectedEdgeId = ref<string | null>(null);
 const isSimulating = ref(false);
 const dragOverGroupId = ref<string | null>(null);
 let simulationInterval: number | null = null;
+
+// Context Menu
+const contextMenu = ref<{
+  show: boolean;
+  x: number;
+  y: number;
+  items: MenuItem[];
+}>({
+  show: false,
+  x: 0,
+  y: 0,
+  items: [],
+});
 
 const selectedEdge = computed(
   () => store.edges.value.find((e) => e.id === selectedEdgeId.value) || null,
@@ -45,6 +60,23 @@ const connectedEdges = computed(() => {
   );
 });
 
+// 연결선 기본 옵션 (방향 표시 화살표)
+const defaultEdgeOptions = computed(() => ({
+  type: "smoothstep",
+  zIndex: 1,
+  animated: isSimulating.value,
+  markerEnd: {
+    type: MarkerType.ArrowClosed,
+    width: 15,
+    height: 15,
+    color: "var(--edge-color, #6366f1)",
+  },
+  style: {
+    strokeWidth: 2,
+    stroke: "var(--edge-color, #475569)",
+  },
+}));
+
 let nodeId = 0;
 const getId = () => `node_${nodeId++}`;
 
@@ -57,41 +89,20 @@ onConnect((connection: Connection) => {
     sourceHandle: connection.sourceHandle,
     target: connection.target,
     targetHandle: connection.targetHandle,
-    zIndex: 1, // 엣지가 그룹 위에 표시되도록
+    ...defaultEdgeOptions.value,
   };
   addEdges([edge]);
   store.addEdge(edge);
 });
 
-// 드래그 중 그룹 하이라이트
-onNodeDrag((event: NodeDragEvent) => {
-  const draggedNode = event.node;
-
-  // 그룹 노드이거나 이미 그룹에 속한 노드는 무시
-  if (draggedNode.type === "group" || draggedNode.parentNode) {
-    dragOverGroupId.value = null;
-    return;
-  }
-
-  // 노드 중심 계산
-  const nodeCenter = {
-    x: draggedNode.position.x + 80,
-    y: draggedNode.position.y + 40,
-  };
-
-  const group = store.findGroupAtPosition(nodeCenter);
-  dragOverGroupId.value = group?.id || null;
-});
-
-// 노드 드래그 종료 시 그룹 체크
 onNodeDragStop((event: NodeDragEvent) => {
   const draggedNode = event.node;
   dragOverGroupId.value = null;
 
-  // 그룹 노드는 다른 그룹에 속하지 않음
-  if (draggedNode.type === "group") return;
+  // 위치 저장 (히스토리)
+  store.saveHistory();
 
-  // 이미 그룹에 속해있으면 스킵
+  if (draggedNode.type === "group") return;
   if (draggedNode.parentNode) return;
 
   const nodeCenter = {
@@ -99,19 +110,10 @@ onNodeDragStop((event: NodeDragEvent) => {
     y: draggedNode.position.y + 40,
   };
 
-  const group = store.findGroupAtPosition(nodeCenter);
+  const group = store.findGroupAtPosition(nodeCenter, draggedNode.id);
 
   if (group) {
-    const relativePosition = {
-      x: draggedNode.position.x - group.position.x,
-      y: draggedNode.position.y - group.position.y,
-    };
-
-    // 좌상단 경계 체크
-    relativePosition.x = Math.max(0, relativePosition.x);
-    relativePosition.y = Math.max(30, relativePosition.y); // 헤더 높이
-
-    store.setNodeParent(draggedNode.id, group.id, relativePosition);
+    store.setNodeParent(draggedNode.id, group.id);
   }
 });
 
@@ -122,10 +124,27 @@ function onDragOver(event: DragEvent) {
   if (event.dataTransfer) {
     event.dataTransfer.dropEffect = "move";
   }
+
+  if (event.dataTransfer?.types.includes("application/vueflow")) {
+    const bounds = flowContainer.value?.getBoundingClientRect();
+    if (bounds) {
+      const position = project({
+        x: event.clientX - bounds.left,
+        y: event.clientY - bounds.top,
+      });
+      const group = store.findGroupAtPosition(position);
+      dragOverGroupId.value = group?.id || null;
+    }
+  }
+}
+
+function onDragLeave() {
+  dragOverGroupId.value = null;
 }
 
 function onDrop(event: DragEvent) {
   event.preventDefault();
+  dragOverGroupId.value = null;
 
   const data = event.dataTransfer?.getData("application/vueflow");
   if (!data || !flowContainer.value) return;
@@ -138,35 +157,13 @@ function onDrop(event: DragEvent) {
     y: event.clientY - bounds.top,
   });
 
-  // 드롭 위치가 그룹 내부인지 체크 (그룹이 아닌 노드만)
-  let parentGroupId: string | undefined;
-  let finalPosition = position;
-
-  if (template.type !== "group") {
-    const group = store.findGroupAtPosition(position);
-
-    if (group) {
-      parentGroupId = group.id;
-      finalPosition = {
-        x: Math.max(0, position.x - group.position.x),
-        y: Math.max(30, position.y - group.position.y),
-      };
-    }
-  }
+  const newNodeId = getId();
 
   const newNode: Node<NodeData> = {
-    id: getId(),
+    id: newNodeId,
     type: template.type,
-    position: finalPosition,
-    parentNode: parentGroupId,
-    extent: parentGroupId
-      ? [
-          [0, 30],
-          [Infinity, Infinity],
-        ]
-      : undefined,
-    expandParent: false,
-    zIndex: template.type === "group" ? -1 : 0,
+    position: store.snapPosition(position),
+    zIndex: template.type === "group" ? -1000 : 0,
     data: {
       label: template.label,
       description: "",
@@ -178,22 +175,140 @@ function onDrop(event: DragEvent) {
   };
 
   store.addNode(newNode);
-  dragOverGroupId.value = null;
+
+  if (template.type !== "group") {
+    const group = store.findGroupAtPosition(position);
+    if (group) {
+      store.setNodeParent(newNodeId, group.id);
+    }
+  }
+
+  store.selectNode(newNodeId);
+  selectedEdgeId.value = null;
 }
 
 function onNodeClick({ node }: NodeMouseEvent) {
   store.selectNode(node.id);
   selectedEdgeId.value = null;
+  contextMenu.value.show = false;
 }
 
 function onEdgeClick({ edge }: EdgeMouseEvent) {
   selectedEdgeId.value = edge.id;
   store.selectNode(null);
+  contextMenu.value.show = false;
 }
 
 function onPaneClick() {
   store.selectNode(null);
   selectedEdgeId.value = null;
+  contextMenu.value.show = false;
+}
+
+// Context Menu
+function onNodeContextMenu(event: MouseEvent | TouchEvent, node: Node) {
+  event.preventDefault();
+  store.selectNode(node.id);
+
+  const x = "clientX" in event ? event.clientX : event.touches[0]!.clientX;
+  const y = "clientY" in event ? event.clientY : event.touches[0]!.clientY;
+
+  contextMenu.value = {
+    show: true,
+    x,
+    y,
+    items: [
+      { label: "Duplicate", icon: "📋", action: () => duplicateNode(node.id) },
+      { label: "Delete", icon: "🗑️", action: () => store.removeNode(node.id) },
+      { divider: true, label: "", action: () => {} },
+      {
+        label: "Bring to Front",
+        icon: "⬆",
+        action: () => bringToFront(node.id),
+      },
+      { label: "Send to Back", icon: "⬇", action: () => sendToBack(node.id) },
+    ],
+  };
+}
+
+function onEdgeContextMenu(event: MouseEvent | TouchEvent, edge: Edge) {
+  event.preventDefault();
+  selectedEdgeId.value = edge.id;
+
+  const x = "clientX" in event ? event.clientX : event?.touches[0]!.clientX;
+  const y = "clientY" in event ? event.clientY : event.touches[0]!.clientY;
+
+  contextMenu.value = {
+    show: true,
+    x,
+    y,
+    items: [
+      {
+        label: "Delete Connection",
+        icon: "🗑️",
+        action: () => store.removeEdge(edge.id),
+      },
+    ],
+  };
+}
+
+function onPaneContextMenu(event: MouseEvent | TouchEvent) {
+  event.preventDefault();
+
+  const x = "clientX" in event ? event.clientX : event.touches[0]!.clientX;
+  const y = "clientY" in event ? event.clientY : event.touches[0]!.clientY;
+
+  contextMenu.value = {
+    show: true,
+    x,
+    y,
+    items: [
+      { label: "Paste", icon: "📋", action: () => {}, disabled: true },
+      { divider: true, label: "", action: () => {} },
+      { label: "Select All", icon: "☑", action: selectAll },
+      { label: "Fit View", icon: "⊞", action: fitView },
+    ],
+  };
+}
+
+function duplicateNode(nodeId: string) {
+  const node = store.nodes.value.find((n) => n.id === nodeId);
+  if (!node) return;
+
+  const newNode: Node<NodeData> = {
+    ...JSON.parse(JSON.stringify(node)),
+    id: getId(),
+    position: {
+      x: node.position.x + 50,
+      y: node.position.y + 50,
+    },
+    selected: false,
+  };
+
+  store.addNode(newNode);
+  store.selectNode(newNode.id);
+}
+
+function bringToFront(nodeId: string) {
+  const node = store.nodes.value.find((n) => n.id === nodeId);
+  if (node && node.type !== "group") {
+    node.zIndex = 100;
+  }
+}
+
+function sendToBack(nodeId: string) {
+  const node = store.nodes.value.find((n) => n.id === nodeId);
+  if (node && node.type !== "group") {
+    node.zIndex = 0;
+  }
+}
+
+function selectAll() {
+  store.nodes.value.forEach((n: any) => (n.selected = true));
+}
+
+function fitView() {
+  // VueFlow의 fitView 사용
 }
 
 function onPropertyUpdate(nodeId: string, data: Partial<NodeData>) {
@@ -215,6 +330,10 @@ function onUpdateNodeSize(nodeId: string, width: number, height: number) {
   store.updateNodeSize(nodeId, width, height);
 }
 
+function onSetNodeParent(nodeId: string, parentId: string | null) {
+  store.setNodeParent(nodeId, parentId);
+}
+
 function onGroupResize(nodeId: string, width: number, height: number) {
   store.updateNodeSize(nodeId, width, height);
 }
@@ -222,6 +341,11 @@ function onGroupResize(nodeId: string, width: number, height: number) {
 // 실시간 시뮬레이션
 function toggleSimulation() {
   isSimulating.value = !isSimulating.value;
+
+  // 엣지 애니메이션 토글
+  store.edges.value.forEach((edge) => {
+    edge.animated = isSimulating.value;
+  });
 
   if (isSimulating.value) {
     simulationInterval = window.setInterval(() => {
@@ -249,6 +373,26 @@ function toggleSimulation() {
           }
         }
 
+        if (
+          node.type === "machine" &&
+          node.data.properties?.count !== undefined
+        ) {
+          const capacity = node.data.properties.capacity || 100;
+          const currentCount = node.data.properties.count || 0;
+
+          if (node.data.status === "normal" && node.data.animated) {
+            const increment = Math.floor(Math.random() * 3) + 1;
+            node.data.properties.count = Math.min(
+              capacity,
+              currentCount + increment,
+            );
+
+            if (node.data.properties.count >= capacity) {
+              node.data.properties.count = 0;
+            }
+          }
+        }
+
         if (node.data.status && Math.random() < 0.02) {
           const statuses: NodeData["status"][] = ["normal", "warning", "error"];
           node.data.status =
@@ -271,6 +415,23 @@ function saveToDatabase() {
 }
 
 function onKeyDown(event: KeyboardEvent) {
+  // Undo/Redo
+  if ((event.ctrlKey || event.metaKey) && event.key === "z") {
+    event.preventDefault();
+    if (event.shiftKey) {
+      store.redo();
+    } else {
+      store.undo();
+    }
+    return;
+  }
+
+  if ((event.ctrlKey || event.metaKey) && event.key === "y") {
+    event.preventDefault();
+    store.redo();
+    return;
+  }
+
   if (
     (event.target as HTMLElement).tagName === "INPUT" ||
     (event.target as HTMLElement).tagName === "TEXTAREA"
@@ -299,14 +460,13 @@ onUnmounted(() => {
   }
 });
 
-// 드래그 오버 중인 그룹 노드 스타일 업데이트
 function getGroupClass(nodeId: string) {
   return dragOverGroupId.value === nodeId ? "drag-target" : "";
 }
 </script>
 
 <template>
-  <div class="editor-container">
+  <div class="editor-container" :class="store.theme.value">
     <NodePalette />
 
     <div
@@ -314,15 +474,22 @@ function getGroupClass(nodeId: string) {
       class="flow-container"
       @drop="onDrop"
       @dragover="onDragOver"
+      @dragleave="onDragLeave"
     >
       <VueFlow
         v-model:nodes="store.nodes.value"
         v-model:edges="store.edges.value"
         :connect-on-click="true"
-        :default-edge-options="{ type: 'smoothstep', zIndex: 1 }"
+        :default-edge-options="defaultEdgeOptions"
+        :elevate-nodes-on-select="false"
+        :snap-to-grid="store.snapToGrid.value"
+        :snap-grid="[store.gridSize.value, store.gridSize.value]"
         @node-click="onNodeClick"
         @edge-click="onEdgeClick"
         @pane-click="onPaneClick"
+        @node-context-menu="(e) => onNodeContextMenu(e.event, e.node)"
+        @edge-context-menu="(e) => onEdgeContextMenu(e.event, e.edge)"
+        @pane-context-menu="onPaneContextMenu"
         fit-view-on-init
         :default-zoom="1"
         :min-zoom="0.2"
@@ -343,6 +510,9 @@ function getGroupClass(nodeId: string) {
         <template #node-equipment="nodeProps">
           <EquipmentNode v-bind="nodeProps" />
         </template>
+        <template #node-machine="nodeProps">
+          <MachineNode v-bind="nodeProps" />
+        </template>
         <template #node-group="nodeProps">
           <GroupNode
             v-bind="nodeProps"
@@ -355,37 +525,50 @@ function getGroupClass(nodeId: string) {
         </template>
 
         <Background
-          :variant="BackgroundVariant.Dots"
-          :gap="24"
+          :variant="
+            store.snapToGrid.value
+              ? BackgroundVariant.Lines
+              : BackgroundVariant.Dots
+          "
+          :gap="store.gridSize.value"
           :size="1"
-          pattern-color="#334155"
+          :pattern-color="store.theme.value === 'dark' ? '#334155' : '#cbd5e1'"
         />
         <Controls position="bottom-left" />
         <MiniMap position="bottom-right" :pannable="true" :zoomable="true" />
       </VueFlow>
 
-      <div class="toolbar">
-        <button
-          class="toolbar-btn"
-          :class="{ active: isSimulating }"
-          @click="toggleSimulation"
-        >
-          {{ isSimulating ? "⏹ Stop" : "▶ Simulate" }}
-        </button>
-        <button class="toolbar-btn" @click="saveToDatabase">💾 Save</button>
-      </div>
+      <Toolbar
+        :is-simulating="isSimulating"
+        @simulate="toggleSimulation"
+        @save="saveToDatabase"
+      />
 
-      <div class="shortcut-hint"><kbd>Delete</kbd> to remove selected</div>
+      <div class="shortcut-hint">
+        <kbd>Delete</kbd> remove · <kbd>Ctrl+Z</kbd> undo ·
+        <kbd>Ctrl+Y</kbd> redo
+      </div>
     </div>
 
     <PropertyPanel
       :node="store.selectedNode.value"
       :edge="selectedEdge"
       :connected-edges="connectedEdges"
+      :all-nodes="store.nodes.value"
       @update="onPropertyUpdate"
       @delete-edge="onDeleteEdge"
       @delete-node="onDeleteNode"
       @update-node-size="onUpdateNodeSize"
+      @set-node-parent="onSetNodeParent"
+    />
+
+    <!-- Context Menu -->
+    <ContextMenu
+      v-if="contextMenu.show"
+      :x="contextMenu.x"
+      :y="contextMenu.y"
+      :items="contextMenu.items"
+      @close="contextMenu.show = false"
     />
   </div>
 </template>
@@ -395,43 +578,13 @@ function getGroupClass(nodeId: string) {
   display: flex;
   width: 100vw;
   height: 100vh;
-  background: #0f172a;
+  background: var(--bg-primary);
 }
 
 .flow-container {
   flex: 1;
   position: relative;
-  background: #0f172a;
-}
-
-.toolbar {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  z-index: 10;
-  display: flex;
-  gap: 8px;
-}
-
-.toolbar-btn {
-  padding: 8px 12px;
-  background: #1e293b;
-  color: #f1f5f9;
-  border: 1px solid #334155;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.toolbar-btn:hover {
-  background: #334155;
-}
-
-.toolbar-btn.active {
-  background: #6366f1;
-  border-color: #6366f1;
+  background: var(--bg-primary);
 }
 
 .shortcut-hint {
@@ -440,12 +593,12 @@ function getGroupClass(nodeId: string) {
   left: 50%;
   transform: translateX(-50%);
   font-size: 11px;
-  color: #64748b;
+  color: var(--text-muted);
   z-index: 10;
 }
 
 .shortcut-hint kbd {
-  background: #334155;
+  background: var(--bg-secondary);
   padding: 2px 6px;
   border-radius: 4px;
   font-family: monospace;

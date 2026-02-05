@@ -4,7 +4,6 @@ export interface NodeData {
   color: string;
   icon: string;
   properties: Record<string, any>;
-  // 확장 속성
   status?: "normal" | "warning" | "error" | "offline";
   value?: number;
   minValue?: number;
@@ -21,3 +20,10 @@ export interface NodeTemplate {
   defaultProperties: Record<string, any>;
   category?: string;
 }
+
+export interface HistoryState {
+  nodes: any[];
+  edges: any[];
+}
+
+export type Theme = "dark" | "light";

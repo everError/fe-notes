@@ -1,26 +1,120 @@
 import { ref, computed } from "vue";
 import type { Node, Edge, XYPosition } from "@vue-flow/core";
-import type { NodeData } from "../types";
+import type { NodeData, HistoryState, Theme } from "../types";
 
 const nodes = ref<Node<NodeData>[]>([]);
 const edges = ref<Edge[]>([]);
 const selectedNodeId = ref<string | null>(null);
+
+// Undo/Redo
+const history = ref<HistoryState[]>([]);
+const historyIndex = ref(-1);
+const isUndoRedo = ref(false);
+const MAX_HISTORY = 50;
+
+// Theme
+const theme = ref<Theme>("dark");
+
+// Snap Grid
+const snapToGrid = ref(true);
+const gridSize = ref(20);
 
 export function useFlowStore() {
   const selectedNode = computed(
     () => nodes.value.find((n) => n.id === selectedNodeId.value) || null,
   );
 
-  function addNode(node: Node<NodeData>) {
-    // 그룹 노드는 zIndex를 낮게 설정하여 뒤에 배치
-    if (node.type === "group") {
-      node.zIndex = -1;
+  const canUndo = computed(() => historyIndex.value > 0);
+  const canRedo = computed(() => historyIndex.value < history.value.length - 1);
+
+  // 상태 저장
+  function saveHistory() {
+    if (isUndoRedo.value) return;
+
+    const state: HistoryState = {
+      nodes: JSON.parse(JSON.stringify(nodes.value)),
+      edges: JSON.parse(JSON.stringify(edges.value)),
+    };
+
+    // 현재 위치 이후의 히스토리 삭제
+    history.value = history.value.slice(0, historyIndex.value + 1);
+    history.value.push(state);
+
+    // 최대 개수 제한
+    if (history.value.length > MAX_HISTORY) {
+      history.value.shift();
+    } else {
+      historyIndex.value++;
     }
+  }
+
+  function undo() {
+    if (!canUndo.value) return;
+
+    isUndoRedo.value = true;
+    historyIndex.value--;
+    const state = history.value[historyIndex.value];
+    if (state) {
+      nodes.value = JSON.parse(JSON.stringify(state.nodes));
+      edges.value = JSON.parse(JSON.stringify(state.edges));
+    }
+    selectedNodeId.value = null;
+
+    setTimeout(() => {
+      isUndoRedo.value = false;
+    }, 0);
+  }
+
+  function redo() {
+    if (!canRedo.value) return;
+
+    isUndoRedo.value = true;
+    historyIndex.value++;
+    const state = history.value[historyIndex.value];
+    if (state) {
+      nodes.value = JSON.parse(JSON.stringify(state.nodes));
+      edges.value = JSON.parse(JSON.stringify(state.edges));
+    }
+    selectedNodeId.value = null;
+
+    setTimeout(() => {
+      isUndoRedo.value = false;
+    }, 0);
+  }
+
+  // 초기 히스토리 저장
+  function initHistory() {
+    history.value = [
+      {
+        nodes: [],
+        edges: [],
+      },
+    ];
+    historyIndex.value = 0;
+  }
+
+  function snapPosition(position: XYPosition): XYPosition {
+    if (!snapToGrid.value) return position;
+    return {
+      x: Math.round(position.x / gridSize.value) * gridSize.value,
+      y: Math.round(position.y / gridSize.value) * gridSize.value,
+    };
+  }
+
+  function addNode(node: Node<NodeData>) {
+    if (node.type === "group") {
+      node.zIndex = -1000;
+      node.selectable = true;
+      node.draggable = true;
+    } else {
+      node.zIndex = 0;
+    }
+    node.position = snapPosition(node.position);
     nodes.value.push(node);
+    saveHistory();
   }
 
   function removeNode(nodeId: string) {
-    // 자식 노드들의 부모 해제
     nodes.value.forEach((n) => {
       if (n.parentNode === nodeId) {
         const parent = nodes.value.find((p) => p.id === nodeId);
@@ -31,8 +125,6 @@ export function useFlowStore() {
           };
         }
         n.parentNode = undefined;
-        n.extent = undefined;
-        n.expandParent = undefined;
       }
     });
 
@@ -43,6 +135,7 @@ export function useFlowStore() {
     if (selectedNodeId.value === nodeId) {
       selectedNodeId.value = null;
     }
+    saveHistory();
   }
 
   function updateNodeData(nodeId: string, data: Partial<NodeData>) {
@@ -52,16 +145,25 @@ export function useFlowStore() {
     }
   }
 
+  function updateNodePosition(nodeId: string, position: XYPosition) {
+    const node = nodes.value.find((n) => n.id === nodeId);
+    if (node) {
+      node.position = snapPosition(position);
+    }
+  }
+
   function selectNode(nodeId: string | null) {
     selectedNodeId.value = nodeId;
   }
 
   function addEdge(edge: Edge) {
     edges.value.push(edge);
+    saveHistory();
   }
 
   function removeEdge(edgeId: string) {
     edges.value = edges.value.filter((e) => e.id !== edgeId);
+    saveHistory();
   }
 
   function updateNodeSize(nodeId: string, width: number, height: number) {
@@ -75,50 +177,42 @@ export function useFlowStore() {
     }
   }
 
-  function setNodeParent(
-    nodeId: string,
-    parentId: string,
-    relativePosition: XYPosition,
-  ) {
-    const node = nodes.value.find((n) => n.id === nodeId);
-    const parent = nodes.value.find((n) => n.id === parentId);
+  function setNodeParent(nodeId: string, parentId: string | null) {
+    const nodeIndex = nodes.value.findIndex((n) => n.id === nodeId);
+    if (nodeIndex === -1) return;
 
-    if (node && parent) {
-      node.parentNode = parentId;
-      // extent를 배열로 설정하여 좌/상단은 제한, 우/하단은 무제한
-      // [좌상단 제한, 우하단 제한]
-      node.extent = [
-        [0, 30],
-        [Infinity, Infinity],
-      ]; // 30은 헤더 높이
-      node.expandParent = false; // 부모 확장 비활성화
-      node.position = relativePosition;
-      node.zIndex = 0; // 그룹보다 위에 표시
-    }
-  }
+    const node = nodes.value[nodeIndex];
 
-  function removeNodeFromParent(nodeId: string) {
-    const node = nodes.value.find((n) => n.id === nodeId);
-    if (node && node.parentNode) {
-      const parent = nodes.value.find((p) => p.id === node.parentNode);
-      if (parent) {
+    if (!node) return;
+    const currentParentId = node.parentNode;
+    if (currentParentId) {
+      const oldParent = nodes.value.find((p) => p.id === currentParentId);
+      if (oldParent) {
         node.position = {
-          x: node.position.x + parent.position.x,
-          y: node.position.y + parent.position.y,
+          x: node.position.x + oldParent.position.x,
+          y: node.position.y + oldParent.position.y,
         };
       }
       node.parentNode = undefined;
-      node.extent = undefined;
-      node.expandParent = undefined;
     }
+
+    if (parentId) {
+      const newParent = nodes.value.find((n) => n.id === parentId);
+      if (newParent) {
+        node.position = {
+          x: node.position.x - newParent.position.x,
+          y: node.position.y - newParent.position.y,
+        };
+        node.parentNode = parentId;
+      }
+    }
+    saveHistory();
   }
 
-  // 그룹 노드 목록 반환
   function getGroupNodes() {
     return nodes.value.filter((n) => n.type === "group");
   }
 
-  // 특정 위치가 그룹 내부인지 확인
   function findGroupAtPosition(
     position: XYPosition,
     excludeNodeId?: string,
@@ -126,13 +220,15 @@ export function useFlowStore() {
     const groups = getGroupNodes();
 
     for (const group of groups) {
+      if (group.id === excludeNodeId) continue;
+
       const width = group.data?.properties?.width || 250;
       const height = group.data?.properties?.height || 150;
 
       const bounds = {
         left: group.position.x,
         right: group.position.x + width,
-        top: group.position.y + 30, // 헤더 높이
+        top: group.position.y,
         bottom: group.position.y + height,
       };
 
@@ -147,6 +243,55 @@ export function useFlowStore() {
     }
 
     return null;
+  }
+
+  // Theme
+  function setTheme(newTheme: Theme) {
+    theme.value = newTheme;
+    document.documentElement.setAttribute("data-theme", newTheme);
+  }
+
+  function toggleTheme() {
+    setTheme(theme.value === "dark" ? "light" : "dark");
+  }
+
+  // Export/Import
+  function exportToJson(): string {
+    return JSON.stringify(
+      {
+        nodes: nodes.value.map((n) => ({
+          id: n.id,
+          type: n.type,
+          position: n.position,
+          data: n.data,
+          parentNode: n.parentNode,
+          zIndex: n.zIndex,
+        })),
+        edges: edges.value.map((e) => ({
+          id: e.id,
+          source: e.source,
+          sourceHandle: e.sourceHandle,
+          target: e.target,
+          targetHandle: e.targetHandle,
+        })),
+      },
+      null,
+      2,
+    );
+  }
+
+  function importFromJson(json: string) {
+    try {
+      const data = JSON.parse(json);
+      nodes.value = data.nodes || [];
+      edges.value = data.edges || [];
+      selectedNodeId.value = null;
+      saveHistory();
+      return true;
+    } catch (e) {
+      console.error("Import failed:", e);
+      return false;
+    }
   }
 
   function serialize() {
@@ -174,22 +319,43 @@ export function useFlowStore() {
     edges.value = data.edges;
   }
 
+  // 초기화
+  initHistory();
+
   return {
     nodes,
     edges,
     selectedNode,
     selectedNodeId,
+    // Undo/Redo
+    canUndo,
+    canRedo,
+    undo,
+    redo,
+    saveHistory,
+    // Theme
+    theme,
+    setTheme,
+    toggleTheme,
+    // Snap
+    snapToGrid,
+    gridSize,
+    snapPosition,
+    // Actions
     addNode,
     removeNode,
     updateNodeData,
+    updateNodePosition,
     updateNodeSize,
     setNodeParent,
-    removeNodeFromParent,
     getGroupNodes,
     findGroupAtPosition,
     selectNode,
     addEdge,
     removeEdge,
+    // Export/Import
+    exportToJson,
+    importFromJson,
     serialize,
     deserialize,
   };

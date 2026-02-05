@@ -11,16 +11,13 @@ const emit = defineEmits<{
 
 const isSelected = computed(() => props.selected);
 
-// 리사이즈 상태
 const isResizing = ref(false);
 const startPos = ref({ x: 0, y: 0 });
 const startSize = ref({ width: 0, height: 0 });
 
-// 로컬 크기 상태
 const localWidth = ref(250);
 const localHeight = ref(150);
 
-// 초기값 설정
 function initSize() {
   const w = props.data?.properties?.width;
   const h = props.data?.properties?.height;
@@ -79,63 +76,39 @@ function onResizeEnd() {
   emit("resize", localWidth.value, localHeight.value);
 }
 
-// 드롭 타겟 하이라이트
-const isDragOver = ref(false);
-
-function onDragEnter(e: DragEvent) {
-  e.preventDefault();
-  isDragOver.value = true;
-}
-
-function onDragLeave(e: DragEvent) {
-  e.preventDefault();
-  isDragOver.value = false;
-}
-
-function onDragOver(e: DragEvent) {
-  e.preventDefault();
-}
-
-function onDrop(e: DragEvent) {
-  e.preventDefault();
-  isDragOver.value = false;
-}
+// 그룹 헤더 색상 (연결선과 구분)
+const headerColor = computed(() => {
+  const color = props.data?.color || "#475569";
+  // 기존 색상 대신 좀 더 구분되는 색상 사용
+  const colorMap: Record<string, string> = {
+    "#475569": "#1e3a5f", // 기본 그룹 -> 진한 파랑
+    "#6366f1": "#4338ca", // 인디고
+    "#10b981": "#047857", // 에메랄드
+    "#f59e0b": "#b45309", // 앰버
+    "#ef4444": "#b91c1c", // 레드
+  };
+  return colorMap[color] || color;
+});
 </script>
 
 <template>
   <div
     class="group-node"
-    :class="{
-      selected: isSelected,
-      resizing: isResizing,
-      'drag-over': isDragOver,
-    }"
+    :class="{ selected: isSelected, resizing: isResizing }"
     :style="{
-      borderColor: data?.color || '#475569',
-      backgroundColor: isDragOver
-        ? (data?.color || '#475569') + '40'
-        : (data?.color || '#475569') + '15',
+      borderColor: headerColor,
+      backgroundColor: headerColor + '15',
       width: localWidth + 'px',
       height: localHeight + 'px',
     }"
-    @dragenter="onDragEnter"
-    @dragleave="onDragLeave"
-    @dragover="onDragOver"
-    @drop="onDrop"
   >
-    <div
-      class="group-header"
-      :style="{ backgroundColor: data?.color || '#475569' }"
-    >
+    <div class="group-header" :style="{ backgroundColor: headerColor }">
       <span class="group-icon">{{ data?.icon || "▤" }}</span>
       <span class="group-label">{{ data?.label }}</span>
     </div>
 
     <div class="group-content">
-      <span class="drop-hint" v-if="isDragOver">Drop to add</span>
-      <span class="group-hint" v-else-if="!data?.description"
-        >Drop nodes here</span
-      >
+      <span class="group-hint" v-if="!data?.description">Drop nodes here</span>
       <span class="group-desc" v-else>{{ data.description }}</span>
     </div>
 
@@ -163,11 +136,6 @@ function onDrop(e: DragEvent) {
 
 .group-node.selected {
   box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.3);
-}
-
-.group-node.drag-over {
-  border-style: solid;
-  box-shadow: 0 0 20px rgba(99, 102, 241, 0.3);
 }
 
 .group-header {
@@ -207,19 +175,13 @@ function onDrop(e: DragEvent) {
 
 .group-hint {
   font-size: 11px;
-  color: #64748b;
+  color: var(--text-muted, #64748b);
   font-style: italic;
 }
 
 .group-desc {
   font-size: 11px;
-  color: #94a3b8;
-}
-
-.drop-hint {
-  font-size: 12px;
-  font-weight: 600;
-  color: #6366f1;
+  color: var(--text-secondary, #94a3b8);
 }
 
 .resize-handle {
@@ -239,8 +201,8 @@ function onDrop(e: DragEvent) {
   right: 4px;
   width: 8px;
   height: 8px;
-  border-right: 2px solid #475569;
-  border-bottom: 2px solid #475569;
+  border-right: 2px solid var(--border-color, #475569);
+  border-bottom: 2px solid var(--border-color, #475569);
   opacity: 0;
   transition: opacity 0.15s;
 }

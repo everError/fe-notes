@@ -7,6 +7,7 @@ const props = defineProps<{
   node: Node<NodeData> | null;
   edge: Edge | null;
   connectedEdges: Edge[];
+  allNodes: Node<NodeData>[];
 }>();
 
 const emit = defineEmits<{
@@ -14,22 +15,26 @@ const emit = defineEmits<{
   deleteEdge: [edgeId: string];
   deleteNode: [nodeId: string];
   updateNodeSize: [nodeId: string, width: number, height: number];
+  setNodeParent: [nodeId: string, parentId: string | null];
 }>();
 
 const nodeData = computed(() => props.node?.data);
 const properties = computed(() => nodeData.value?.properties || {});
 
-// 그룹 노드인지 확인
-const isGroupNode = computed(() => props.node?.type === "group");
+const groupNodes = computed(() =>
+  props.allNodes.filter((n) => n.type === "group" && n.id !== props.node?.id),
+);
 
-// 노드 크기 (그룹용)
+const currentParent = computed(() => props.node?.parentNode || "");
+const isGroupNode = computed(() => props.node?.type === "group");
+const isMachineNode = computed(() => props.node?.type === "machine");
+
 const nodeWidth = computed(() => props.node?.data?.properties?.width || 250);
 const nodeHeight = computed(() => props.node?.data?.properties?.height || 150);
 
-// 부모 그룹 이름
-const parentGroupName = computed(() => {
-  if (!props.node?.parentNode) return null;
-  return props.node.parentNode;
+const childNodesCount = computed(() => {
+  if (!props.node || !isGroupNode.value) return 0;
+  return props.allNodes.filter((n) => n.parentNode === props.node?.id).length;
 });
 
 function updateProperty(key: string, value: string | number) {
@@ -88,7 +93,8 @@ function updateAnimated(event: Event) {
 
 function handlePropertyInput(key: string, event: Event) {
   const target = event.target as HTMLInputElement;
-  updateProperty(key, target.value);
+  const value = target.type === "number" ? Number(target.value) : target.value;
+  updateProperty(key, value);
 }
 
 function deleteEdge(edgeId: string) {
@@ -122,6 +128,13 @@ function updateHeight(event: Event) {
       nodeWidth.value,
       Number(target.value),
     );
+  }
+}
+
+function changeParentGroup(event: Event) {
+  const target = event.target as HTMLSelectElement;
+  if (props.node) {
+    emit("setNodeParent", props.node.id, target.value || null);
   }
 }
 </script>
@@ -159,18 +172,88 @@ function updateHeight(event: Event) {
         </div>
       </div>
 
-      <!-- 부모 그룹 정보 (읽기 전용) -->
-      <div class="panel-section" v-if="parentGroupName">
-        <div class="section-title">Group</div>
-        <div class="info-row">
-          <span class="info-label">Parent</span>
-          <span class="info-value">{{ parentGroupName }}</span>
+      <!-- 그룹 설정 -->
+      <div class="panel-section" v-if="!isGroupNode">
+        <div class="section-title">Parent Group</div>
+
+        <div class="field">
+          <select :value="currentParent" @change="changeParentGroup">
+            <option value="">None</option>
+            <option
+              v-for="group in groupNodes"
+              :key="group.id"
+              :value="group.id"
+            >
+              {{ group.data?.label || group.id }}
+            </option>
+          </select>
         </div>
-        <div class="info-hint">Drag outside group to remove</div>
+      </div>
+
+      <!-- 그룹 노드 정보 -->
+      <div class="panel-section" v-if="isGroupNode">
+        <div class="section-title">Size</div>
+
+        <div class="size-grid">
+          <div class="field">
+            <label>Width</label>
+            <input
+              type="number"
+              :value="nodeWidth"
+              @input="updateWidth"
+              min="150"
+              step="10"
+            />
+          </div>
+          <div class="field">
+            <label>Height</label>
+            <input
+              type="number"
+              :value="nodeHeight"
+              @input="updateHeight"
+              min="100"
+              step="10"
+            />
+          </div>
+        </div>
+
+        <div class="info-row" v-if="childNodesCount > 0">
+          <span class="info-label">Children</span>
+          <span class="info-value">{{ childNodesCount }}</span>
+        </div>
+      </div>
+
+      <!-- Machine 노드용 (count, capacity) -->
+      <div class="panel-section" v-if="isMachineNode">
+        <div class="section-title">Counter</div>
+
+        <div class="size-grid">
+          <div class="field">
+            <label>Count</label>
+            <input
+              type="number"
+              :value="properties.count ?? 0"
+              @input="handlePropertyInput('count', $event)"
+              min="0"
+            />
+          </div>
+          <div class="field">
+            <label>Capacity</label>
+            <input
+              type="number"
+              :value="properties.capacity ?? 100"
+              @input="handlePropertyInput('capacity', $event)"
+              min="1"
+            />
+          </div>
+        </div>
       </div>
 
       <!-- 모니터링 노드용 -->
-      <div class="panel-section" v-if="nodeData.value !== undefined">
+      <div
+        class="panel-section"
+        v-if="nodeData.value !== undefined && !isMachineNode"
+      >
         <div class="section-title">Value</div>
 
         <div class="field">
@@ -215,50 +298,28 @@ function updateHeight(event: Event) {
         </div>
       </div>
 
-      <!-- 그룹 노드 크기 조절 -->
-      <div class="panel-section" v-if="isGroupNode">
-        <div class="section-title">Size</div>
-
-        <div class="size-grid">
-          <div class="field">
-            <label>Width</label>
-            <input
-              type="number"
-              :value="nodeWidth"
-              @input="updateWidth"
-              min="150"
-              step="10"
-            />
-          </div>
-          <div class="field">
-            <label>Height</label>
-            <input
-              type="number"
-              :value="nodeHeight"
-              @input="updateHeight"
-              min="100"
-              step="10"
-            />
-          </div>
-        </div>
-      </div>
-
-      <!-- 커스텀 속성 (width, height 제외) -->
+      <!-- 커스텀 속성 -->
       <div
         class="panel-section"
         v-if="
-          Object.keys(properties).filter((k) => k !== 'width' && k !== 'height')
-            .length
+          Object.keys(properties).filter(
+            (k) => !['width', 'height', 'count', 'capacity'].includes(k),
+          ).length
         "
       >
         <div class="section-title">Properties</div>
 
         <template v-for="(value, key) in properties" :key="key">
-          <div v-if="key !== 'width' && key !== 'height'" class="field">
+          <div
+            v-if="
+              !['width', 'height', 'count', 'capacity'].includes(String(key))
+            "
+            class="field"
+          >
             <label>{{ key }}</label>
             <input
               v-if="typeof value !== 'object'"
-              type="text"
+              :type="typeof value === 'number' ? 'number' : 'text'"
               :value="value"
               @input="handlePropertyInput(String(key), $event)"
             />
@@ -461,6 +522,7 @@ function updateHeight(event: Event) {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  margin-top: 8px;
   padding: 6px 8px;
   background: #0f172a;
   border-radius: 4px;
@@ -474,14 +536,7 @@ function updateHeight(event: Event) {
 .info-value {
   font-size: 11px;
   color: #e2e8f0;
-  font-family: monospace;
-}
-
-.info-hint {
-  margin-top: 6px;
-  font-size: 10px;
-  color: #64748b;
-  font-style: italic;
+  font-weight: 500;
 }
 
 .edge-item {
