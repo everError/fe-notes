@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive } from "vue";
+import { computed } from "vue";
 import { Handle, Position } from "@vue-flow/core";
 import type { NodeProps } from "../../types";
 import { useNode } from "../../composables/useNode";
@@ -14,7 +14,7 @@ const props = defineProps<
 >();
 
 // const { isSelected, hasParent, groupColor, nodeStyle } = useNode(props);
-const node = reactive(useNode(props));
+const node = useNode(props);
 
 const wrapperClass = computed(() => [
   "node-wrapper",
@@ -25,42 +25,37 @@ const wrapperClass = computed(() => [
   },
 ]);
 
-const showHandles = computed(() => props.showHandles !== false);
+// const showHandles = computed(() => props.showHandles);
 </script>
 
 <template>
-  <div :class="wrapperClass" :style="node.nodeStyle">
+  <div :class="wrapperClass" :style="node.nodeStyle.value">
     <!-- 핸들 (연결점) -->
-    <template v-if="showHandles">
-      <Handle id="top" type="source" :position="Position.Top" class="handle" />
-      <Handle
-        id="bottom"
-        type="source"
-        :position="Position.Bottom"
-        class="handle"
-      />
-      <Handle
-        id="left"
-        type="source"
-        :position="Position.Left"
-        class="handle"
-      />
-      <Handle
-        id="right"
-        type="source"
-        :position="Position.Right"
-        class="handle"
-      />
-    </template>
+    <!-- <template v-if="showHandles"> -->
+    <Handle id="top" type="source" :position="Position.Top" class="handle" />
+    <Handle
+      id="bottom"
+      type="source"
+      :position="Position.Bottom"
+      class="handle"
+    />
+    <Handle id="left" type="source" :position="Position.Left" class="handle" />
+    <Handle
+      id="right"
+      type="source"
+      :position="Position.Right"
+      class="handle"
+    />
+    <!-- </template> -->
 
     <!-- 노드 콘텐츠 (slot) -->
     <slot />
 
     <!-- 그룹 뱃지 -->
     <div
-      v-if="node.hasParent"
+      v-if="node.hasParent.value"
       class="group-badge"
-      :style="{ backgroundColor: node.groupColor || '#475569' }"
+      :style="{ backgroundColor: node.groupColor.value || '#475569' }"
     >
       ▤
     </div>
