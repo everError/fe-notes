@@ -1,0 +1,34 @@
+html, body, #app {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  /* iframe 내부는 배경 투명하게 해도 되고, 실제 앱 배경으로 해도 됨 */
+  background: #ffffff;
+}
+
+/* 선택된 노드 하이라이트 - iframe 내부에서 표시 */
+[data-node-id].node--selected {
+  outline: 2px solid #6366f1;
+  outline-offset: 2px;
+}
+
+/* 빈 슬롯/children 영역 */
+.slot-drop-zone {
+  min-height: 32px;
+  border: 1.5px dashed #d1d5db;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: #9ca3af;
+  padding: 8px;
+  transition: all 0.15s;
+}
+
+.slot-drop-zone--active {
+  border-color: #6366f1;
+  background: rgba(99, 102, 241, 0.05);
+}

@@ -1,0 +1,10 @@
+{
+  "name": "@ide-demo/ide",
+  "version": "0.0.1",
+  "private": true,
+  "dependencies": {
+    "monaco-editor": "^0.55.1",
+    "@ide-demo/shared": "workspace:*",
+    "@ide-demo/editor": "workspace:*"
+  }
+}

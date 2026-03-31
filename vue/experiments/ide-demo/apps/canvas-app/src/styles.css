@@ -1,0 +1,268 @@
+/* ================================================================
+   styles.css — 앱 전역 스타일
+   ================================================================ */
+
+@import 'tailwindcss';
+@import 'tailwindcss-primeui';
+@import 'primeicons/primeicons.css';
+
+@source "../../libs/shared/src/**/*.{vue,ts}";
+@source inline("{text,bg,border}-{slate,gray,red,orange,amber,yellow,green,teal,cyan,sky,blue,indigo,violet,purple,pink}-{50,100,200,300,400,500,600,700,800,900,950}");
+@source inline("{text,bg,border}-{transparent,white,black}");
+@source inline("{p,px,py,pt,pb,pl,pr,m,mx,my,mt,mb,ml,mr}-{0,1,2,3,4,5,6,8,10,12,16,20}");
+@source inline("{gap,gap-x,gap-y}-{0,1,2,3,4,5,6,8,10,12}");
+@source inline("{w,h}-{full,auto,screen,fit,0,1,2,4,8,12,16,20,24,32,40,48,56,64,72,80,96}");
+@source inline("rounded-{none,sm,md,lg,xl,2xl,full}");
+@source inline("shadow-{none,sm,md,lg,xl,2xl}");
+@source inline("text-{xs,sm,base,lg,xl,2xl,3xl}");
+@source inline("font-{normal,medium,semibold,bold}");
+@source inline("opacity-{0,25,50,75,100}");
+@source inline("grid-cols-{1,2,3,4,5,6}");
+@source inline("sm:grid-cols-{1,2,3,4,5,6}");
+@source inline("md:grid-cols-{1,2,3,4,5,6}");
+@source inline("lg:grid-cols-{1,2,3,4,5,6}");
+@source inline("xl:grid-cols-{1,2,3,4,5,6}");
+@source inline("col-start-{1,2,3,4,5,6}");
+@source inline("sm:col-start-{1,2,3,4,5,6}");
+@source inline("md:col-start-{1,2,3,4,5,6}");
+@source inline("lg:col-start-{1,2,3,4,5,6}");
+@source inline("xl:col-start-{1,2,3,4,5,6}");
+
+/* ── Layout ── */
+
+.a-menu-header {
+  @apply flex justify-center items-center py-10 text-2xl text-primary-500;
+}
+.a-layout-header {
+  @apply bg-transparent border-transparent;
+}
+.a-layout-container {
+  @apply transition-all duration-300;
+}
+.a-title-bar {
+  @apply flex items-center justify-between w-full;
+}
+
+/* ── PanelMenu (사이드 메뉴) ── */
+
+.p-panelmenu {
+  @apply gap-0;
+}
+.p-panelmenu-panel {
+  @apply bg-transparent border-none;
+}
+.p-panelmenu-panel a {
+  @apply py-1;
+}
+.p-panelmenu-panel .pi {
+  color: var(--p-primary-color);
+}
+
+/* ── Breadcrumb ── */
+
+.p-breadcrumb {
+  padding: 8px;
+}
+
+/* ── Drawer (UserInfo) ── */
+
+.p-drawer-header .p-drawer-title {
+  @apply text-base;
+}
+
+/* ── Button ── */
+
+.p-button {
+  @apply text-sm;
+}
+
+/* ── Input ── */
+
+.p-inputtext {
+  @apply text-sm;
+}
+.p-inputtext:read-only {
+  background-color: var(--p-surface-100);
+  border: 1px dashed var(--p-surface-400);
+}
+
+/* ── Textarea ── */
+
+.p-textarea:read-only {
+  background-color: var(--p-surface-100);
+  border: 1px dashed var(--p-surface-400);
+}
+
+/* ── Select ── */
+
+.p-select.p-disabled {
+  pointer-events: all;
+  background-color: var(--p-surface-100);
+  border: 1px dashed var(--p-surface-400);
+}
+
+/* ── MultiSelect ── */
+
+.p-multiselect-label-container {
+  display: flex;
+  align-items: center;
+}
+.p-multiselect.p-disabled {
+  pointer-events: all;
+  background-color: var(--p-surface-100);
+  border: 1px dashed var(--p-surface-400);
+}
+.p-multiselect.p-disabled .p-chip {
+  background-color: var(--p-surface-100);
+}
+.p-multiselect .p-chip {
+  background-color: white;
+}
+.p-chip-label {
+  max-width: 100px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── SelectButton ── */
+
+.p-selectbutton .p-togglebutton {
+  @apply flex-1;
+}
+.p-togglebutton.p-togglebutton-checked {
+  background: var(--p-primary-500);
+  color: white;
+}
+.p-togglebutton-content {
+  background: transparent;
+}
+
+/* ── Card ── */
+
+.p-card {
+  @apply rounded-lg m-1;
+}
+.p-card-body {
+  @apply flex flex-col justify-between h-full p-2;
+}
+.p-card-header {
+  @apply min-h-12 p-1 flex;
+  border-bottom: 1px solid var(--p-surface-300);
+}
+.p-card-content {
+  @apply h-full;
+}
+
+/* ── Dialog ── */
+
+.p-dialog-header-actions {
+  gap: 1rem;
+}
+.p-dialog-header {
+  @apply py-2 px-4 bg-slate-100;
+  border-bottom: 1px solid var(--p-surface-200);
+}
+.p-dialog-content {
+  @apply px-1 py-2;
+}
+.p-dialog-footer {
+  @apply px-4 py-3 bg-slate-100;
+  border-top: 1px solid var(--p-surface-200);
+}
+
+/* ── DatePicker ── */
+
+.p-datepicker-day-selected-range {
+  background: color-mix(in srgb, var(--p-primary-400), transparent 84%);
+}
+
+/* ── FileUpload ── */
+
+.p-fileupload-header {
+  padding: 0.2rem;
+}
+.p-fileupload-content {
+  @apply overflow-auto gap-1;
+  padding: 0.1rem;
+  scrollbar-width: thin;
+  scrollbar-color: #d1d5db transparent;
+  height: 70px;
+}
+.p-fileupload-file {
+  padding: 0.4rem;
+}
+.p-fileupload-file .p-fileupload-file-name {
+  max-width: 150px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.p-fileupload-file-thumbnail {
+  @apply hidden;
+}
+
+/* ── ScrollPanel ── */
+
+.p-scrollpanel-bar {
+  background: var(--p-surface-300);
+}
+
+/* ── Toast ── */
+
+.p-toast {
+  width: min(var(--p-toast-width), calc(100% - 40px));
+}
+@media (max-width: 640px) {
+  .p-toast-summary {
+    font-size: 0.875rem;
+  }
+  .p-toast-detail {
+    font-size: 0.75rem;
+  }
+}
+
+/* ── ProgressSpinner ── */
+
+:root {
+  --p-progressspinner-color-one: var(--p-primary-500);
+  --p-progressspinner-color-two: var(--p-primary-600);
+  --p-progressspinner-color-three: var(--p-primary-500);
+  --p-progressspinner-color-four: var(--p-primary-600);
+}
+
+/* ── FloatLabel ── */
+
+.p-floatlabel:has(.p-inputtext:read-only:focus) label {
+  color: #71717a;
+  background: linear-gradient(to bottom, white 50%, var(--p-surface-100) 50%);
+}
+
+/* ── Label ── */
+
+.a-field-label {
+  @apply text-sm font-semibold;
+}
+.a-title-label {
+  @apply pl-2 text-base font-semibold;
+}
+
+/* ── Hover/Focus Effect ── */
+
+.a-input-hover-focus-effect {
+  @apply transition duration-300 ease-in-out transform hover:shadow-lg;
+}
+
+/* ── TreeTable ── */
+
+.p-treetable-thead th {
+  @apply p-3.5 rounded-tl-lg rounded-tr-lg;
+  background-color: color-mix(in srgb, #fff, #181d1f 2%);
+}
+.p-treetable-column-title {
+  font-weight: 400;
+}
+.p-treetable-tbody > tr.p-treetable-row-selected {
+  background-color: #e4f2fd;
+  color: black;
+}

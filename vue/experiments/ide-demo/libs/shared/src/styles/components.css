@@ -1,0 +1,26 @@
+/* 입력 필드 공통 인터랙션 */
+.a-input {
+  transition: all 0.2s ease-in-out;
+}
+.a-input:hover {
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+}
+
+/* 라벨 공통 */
+.a-label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--p-surface-600);
+}
+
+/* float label이 아닌 경우 라벨 위치 초기화 */
+.a-label-static label {
+  background: none !important;
+  position: static;
+  transform: none;
+}
+
+/* float label 활성 상태 배경 */
+.a-label-float-active {
+  background: linear-gradient(to bottom, white 50%, var(--p-surface-100) 50%);
+}

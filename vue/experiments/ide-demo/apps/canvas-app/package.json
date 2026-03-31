@@ -1,0 +1,9 @@
+{
+  "name": "@ide-demo/canvas-app",
+  "version": "0.0.1",
+  "private": true,
+  "dependencies": {
+    "@ide-demo/shared": "workspace:*",
+    "@ide-demo/editor": "workspace:*"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compileOnSave": false,
+  "files": [],
+  "references": [
+    {
+      "path": "./apps/ide"
+    },
+    {
+      "path": "./libs/shared"
+    },
+    {
+      "path": "./apps/canvas-app"
+    },
+    {
+      "path": "./libs/editor"
+    }
+  ]
+}
