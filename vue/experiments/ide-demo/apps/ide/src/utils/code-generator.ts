@@ -7,7 +7,8 @@ import { parseScriptCode } from '@/composables/useScriptParser';
  */
 export function generateVueCode(tree: EditorNode[], script: string): string {
   const template = generateTemplate(tree, 2);
-  return `<template>\n  <div>\n${template}\n  </div>\n</template>\n\n${script}\n`;
+  // return `<template>\n  <div>\n${template}\n  </div>\n</template>\n\n${script}\n`;
+  return `<template>\n${template}\n</template>\n\n${script}\n`;
 }
 
 /** 노드 배열 → template 코드 */
@@ -67,6 +68,18 @@ function generatePropsString(node: EditorNode): string {
   if (!meta) return '';
 
   for (const [key, value] of Object.entries(node.props)) {
+    if (key === 'rowIds' && typeof value === 'string' && value) {
+      const arr = value
+        .split(',')
+        .map((s) => `'${s.trim()}'`)
+        .join(', ');
+      parts.push(`:row-ids="[${arr}]"`);
+      continue;
+    }
+    if (key === 'cols' && value) {
+      parts.push(`:cols="${value}"`);
+      continue;
+    }
     if (value === undefined || value === null || value === '') continue;
 
     const propDef = meta.props[key];

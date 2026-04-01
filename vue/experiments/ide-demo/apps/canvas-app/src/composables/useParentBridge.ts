@@ -1,9 +1,11 @@
-import { ref, onMounted, onBeforeUnmount, nextTick, watch } from 'vue';
+import { ref, nextTick, onMounted, onBeforeUnmount, watch } from 'vue';
 import type { EditorNode } from '@ide-demo/editor';
 
 export function useParentBridge() {
   const tree = ref<EditorNode[]>([]);
   const selectedId = ref<string | null>(null);
+  const script = ref('');
+  const editMode = ref(true);
 
   function sendToParent(type: string, payload: Record<string, any> = {}) {
     window.parent.postMessage({ source: 'canvas-app', type, ...payload }, '*');
@@ -35,6 +37,10 @@ export function useParentBridge() {
         });
         break;
 
+      case 'execute-script':
+        script.value = data.script;
+        break;
+
       case 'select':
         selectedId.value = data.nodeId;
         break;
@@ -42,10 +48,17 @@ export function useParentBridge() {
       case 'deselect':
         selectedId.value = null;
         break;
+
+      case 'request-rects':
+        sendNodeRects();
+        break;
+
+      case 'set-edit-mode':
+        editMode.value = data.value;
+        break;
     }
   }
 
-  // tree가 변경될 때마다 rects 재전송
   watch(
     tree,
     () => {
@@ -65,5 +78,5 @@ export function useParentBridge() {
     window.removeEventListener('message', handleMessage);
   });
 
-  return { tree, selectedId, sendToParent, sendNodeRects };
+  return { tree, selectedId, script, editMode, sendToParent, sendNodeRects };
 }

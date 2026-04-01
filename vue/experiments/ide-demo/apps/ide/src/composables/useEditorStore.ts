@@ -15,40 +15,104 @@ export const useEditorStore = defineStore('editor', () => {
   const dragItem = ref<DragItem | null>(null);
   const dropTarget = ref<DropTarget | null>(null);
 
-  const script = ref<string>(`<script setup lang="ts">
-import { ref, reactive } from 'vue'
+  // state에 추가
+  const scriptStatus = ref<{
+    success: boolean;
+    message: string;
+    bindingNames: string[];
+  } | null>(null);
 
-// 검색 조건
-const searchForm = reactive({
-  name: '',
-  status: '',
-})
+  const script = ref<string>(`
+import { ref } from 'vue';
+import {
+  defineApi,
+  useSelection,
+} from '@ide-demo/shared';
 
-// 사용자 목록
-const userList = ref([
-  { name: '홍길동', email: 'hong@test.com', status: '활성' },
-  { name: '김철수', email: 'kim@test.com', status: '비활성' },
-])
+export type SystemMessage = {
+    systemCode?: string | null;
+    systemName?: string | null;
+    remarks?: string | null;
+};
 
-const loading = ref(false)
+// ── API 정의 ──
 
-// 검색 실행
-async function handleSearch() {
-  loading.value = true
-  // API 호출...
-  loading.value = false
-}
+const useSystemApi = defineApi((api) => ({
+  systems: api.get<SystemMessage[]>('/std/mes/system/system', {skipAuth: true}),
+  setSystem: api.put<SystemMessage>('/std/mes/system/system'),
+}));
 
-// 행 클릭
-function handleRowClick(row: any) {
-  console.log('selected:', row)
-}
+const { systems, setSystem } = useSystemApi();
 
-// 저장
-function handleSave() {
-  console.log('saving...')
-}
-</script>`);
+// ── 상태 ──
+
+const selection = useSelection<SystemMessage>();
+const gridRef = ref<InstanceType<typeof ADataGrid> | null>(null);
+const submitted = ref(false);
+
+// ── 컬럼 정의 ──
+
+const colDefs = [
+  { field: 'systemCode', headerName: '시스템코드' },
+  { field: 'systemName', headerName: '시스템명' },
+  { field: 'remarks', headerName: '비고', flex: 1 },
+];
+
+// ── 조회 ──
+
+const search = async () => {
+  const proceed = await selection.guard();
+  if (!proceed) return;
+  selection.clear();
+  await systems.fetch();
+};
+
+// ── 행 선택 ──
+
+const onRowSelected = async (params: any) => {
+  const proceed = await selection.guard();
+  if (!proceed) return;
+  submitted.value = false;
+  selection.select(params.data as SystemMessage);
+};
+
+// ── 신규 ──
+
+const onNew = async () => {
+  const proceed = await selection.guard();
+  if (!proceed) return;
+  submitted.value = false;
+  selection.create({
+    systemCode: '',
+    systemName: '',
+    remarks: null,
+  });
+};
+
+// ── 저장 ──
+
+const onSave = async () => {
+  submitted.value = true;
+
+  if (!selection.data.value?.systemCode || !selection.data.value?.systemName) {
+    return;
+  }
+
+  const result = await setSystem(selection.data.value);
+  if (result.success) {
+    selection.commit();
+    await systems.refetch();
+  }
+};
+`);
+
+  // 슬롯 선택 다이얼로그 상태
+  const pendingSlotDrop = ref<{
+    type: string;
+    source: 'palette' | 'canvas';
+    parentId: string;
+    slots: { name: string; label: string }[];
+  } | null>(null);
 
   // ─── Getters ───
   const selectedNode = computed(() => {
@@ -60,16 +124,13 @@ function handleSave() {
 
   // ─── Node CRUD ───
 
-  /** 트리에서 노드 찾기 */
   function findNodeById(nodes: EditorNode[], id: string): EditorNode | null {
     for (const node of nodes) {
       if (node.id === id) return node;
-      // children 검색
       if (node.children.length) {
         const found = findNodeById(node.children, id);
         if (found) return found;
       }
-      // slots 검색
       for (const slotNodes of Object.values(node.slots)) {
         const found = findNodeById(slotNodes, id);
         if (found) return found;
@@ -78,7 +139,6 @@ function handleSave() {
     return null;
   }
 
-  /** 새 노드 생성 */
   function createNode(
     type: string,
     parentId: string | null = null,
@@ -102,7 +162,6 @@ function handleSave() {
     };
   }
 
-  /** 루트에 노드 추가 */
   function addNodeToRoot(type: string, index?: number) {
     const node = createNode(type);
     if (index !== undefined && index >= 0) {
@@ -114,7 +173,6 @@ function handleSave() {
     return node;
   }
 
-  /** 특정 부모의 children에 노드 추가 */
   function addNodeToParent(type: string, parentId: string, index?: number) {
     const parent = findNodeById(tree.value, parentId);
     if (!parent) return null;
@@ -128,7 +186,6 @@ function handleSave() {
     return node;
   }
 
-  /** 특정 부모의 슬롯에 노드 추가 */
   function addNodeToSlot(
     type: string,
     parentId: string,
@@ -147,7 +204,6 @@ function handleSave() {
     return node;
   }
 
-  /** 노드 삭제 */
   function removeNode(id: string) {
     function removeFrom(nodes: EditorNode[]): boolean {
       const idx = nodes.findIndex((n) => n.id === id);
@@ -170,18 +226,50 @@ function handleSave() {
     }
   }
 
-  /** 노드 이동 (드래그 앤 드롭) */
   function moveNode(nodeId: string, target: DropTarget) {
     const node = findNodeById(tree.value, nodeId);
     if (!node) return;
-
-    // 자기 자신 안으로 이동 방지
     if (target.parentId === nodeId) return;
-    // 자신의 자식 안으로 이동 방지
     if (isDescendant(nodeId, target.parentId)) return;
+
+    // 이동 전 원래 위치 기록
+    const oldParentId = node.parentId;
+    const oldSlot = node.parentSlot;
+    let oldIndex = -1;
+
+    if (!oldParentId) {
+      oldIndex = tree.value.findIndex((n) => n.id === nodeId);
+    } else {
+      const oldParent = findNodeById(tree.value, oldParentId);
+      if (oldParent) {
+        if (oldSlot && oldParent.slots[oldSlot]) {
+          oldIndex = oldParent.slots[oldSlot].findIndex((n) => n.id === nodeId);
+        } else {
+          oldIndex = oldParent.children.findIndex((n) => n.id === nodeId);
+        }
+      }
+    }
 
     // 원래 위치에서 제거
     removeNode(nodeId);
+
+    // 같은 부모 + 같은 슬롯 안에서 이동할 경우 인덱스 보정
+    const isSameParent =
+      (oldParentId === null && target.parentId === 'root') ||
+      oldParentId === target.parentId;
+    const isSameSlot =
+      (oldSlot ?? undefined) === (target.slotName ?? undefined);
+
+    let adjustedIndex = target.index;
+    if (
+      isSameParent &&
+      isSameSlot &&
+      oldIndex !== -1 &&
+      oldIndex < target.index
+    ) {
+      adjustedIndex = target.index - 1;
+    }
+    adjustedIndex = Math.max(0, adjustedIndex);
 
     // 부모 참조 업데이트
     node.parentId = target.parentId === 'root' ? null : target.parentId;
@@ -189,21 +277,20 @@ function handleSave() {
 
     // 새 위치에 삽입
     if (target.parentId === 'root') {
-      tree.value.splice(target.index, 0, node);
+      tree.value.splice(adjustedIndex, 0, node);
     } else if (target.slotName) {
       const parent = findNodeById(tree.value, target.parentId);
       if (parent?.slots[target.slotName]) {
-        parent.slots[target.slotName].splice(target.index, 0, node);
+        parent.slots[target.slotName].splice(adjustedIndex, 0, node);
       }
     } else {
       const parent = findNodeById(tree.value, target.parentId);
       if (parent) {
-        parent.children.splice(target.index, 0, node);
+        parent.children.splice(adjustedIndex, 0, node);
       }
     }
   }
 
-  /** nodeId가 possibleAncestorId의 자손인지 확인 */
   function isDescendant(possibleAncestorId: string, nodeId: string): boolean {
     const ancestor = findNodeById(tree.value, possibleAncestorId);
     if (!ancestor) return false;
@@ -217,9 +304,7 @@ function handleSave() {
 
   function updateNodeProp(nodeId: string, key: string, value: any) {
     const node = findNodeById(tree.value, nodeId);
-    if (node) {
-      node.props[key] = value;
-    }
+    if (node) node.props[key] = value;
   }
 
   function updateNodeEvent(
@@ -228,9 +313,7 @@ function handleSave() {
     handlerName: string,
   ) {
     const node = findNodeById(tree.value, nodeId);
-    if (node) {
-      node.events[eventName] = handlerName;
-    }
+    if (node) node.events[eventName] = handlerName;
   }
 
   // ─── Selection ───
@@ -254,12 +337,37 @@ function handleSave() {
     dropTarget.value = null;
   }
 
-  /** 드롭 실행 */
   function executeDrop(target: DropTarget) {
+    console.log('[Store] executeDrop', {
+      dragSource: dragItem.value?.source,
+      dragId: dragItem.value?.id,
+      targetParentId: target.parentId,
+      targetSlotName: target.slotName,
+      targetIndex: target.index,
+    });
     if (!dragItem.value) return;
 
+    const parentNode =
+      target.parentId !== 'root'
+        ? findNodeById(tree.value, target.parentId)
+        : null;
+
+    // 슬롯 있는 컨테이너에 드롭 + slotName 미지정 → 다이얼로그
+    if (parentNode && target.slotName === undefined) {
+      const meta = componentRegistry[parentNode.type];
+      if (meta?.canHaveChildren && meta.slots.length > 0) {
+        pendingSlotDrop.value = {
+          type: dragItem.value.id,
+          source: dragItem.value.source,
+          parentId: target.parentId,
+          slots: meta.slots.map((s) => ({ name: s.name, label: s.label })),
+        };
+        endDrag();
+        return;
+      }
+    }
+
     if (dragItem.value.source === 'palette') {
-      // 팔레트에서 새 컴포넌트 드롭
       const type = dragItem.value.id;
       if (target.parentId === 'root') {
         addNodeToRoot(type, target.index);
@@ -269,11 +377,28 @@ function handleSave() {
         addNodeToParent(type, target.parentId, target.index);
       }
     } else {
-      // 캔버스 내 노드 이동
       moveNode(dragItem.value.id, target);
     }
 
     endDrag();
+  }
+
+  function confirmSlotDrop(slotName: string) {
+    if (!pendingSlotDrop.value) return;
+
+    const { type, source, parentId } = pendingSlotDrop.value;
+
+    if (source === 'palette') {
+      addNodeToSlot(type, parentId, slotName);
+    } else {
+      moveNode(type, { parentId, slotName, index: 0 });
+    }
+
+    pendingSlotDrop.value = null;
+  }
+
+  function cancelSlotDrop() {
+    pendingSlotDrop.value = null;
   }
 
   // ─── Serialization ───
@@ -304,7 +429,6 @@ function handleSave() {
   }
 
   return {
-    // state
     tree,
     selectedId,
     selectedNode,
@@ -312,7 +436,8 @@ function handleSave() {
     dropTarget,
     isDragging,
     script,
-    // node operations
+    pendingSlotDrop,
+    scriptStatus,
     findNodeById,
     createNode,
     addNodeToRoot,
@@ -322,14 +447,13 @@ function handleSave() {
     moveNode,
     updateNodeProp,
     updateNodeEvent,
-    // selection
     selectNode,
-    // drag & drop
     startDrag,
     updateDropTarget,
     endDrag,
     executeDrop,
-    // serialization
+    confirmSlotDrop,
+    cancelSlotDrop,
     toJSON,
     loadFromJSON,
   };

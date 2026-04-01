@@ -1,6 +1,5 @@
 <template>
   <div ref="containerEl" class="canvas-container">
-    <!-- iframe -->
     <iframe
       ref="iframeEl"
       :src="canvasAppUrl"
@@ -8,16 +7,19 @@
       @load="onIframeLoad"
     />
 
-    <!-- 투명 오버레이 -->
+    <!-- 편집 모드일 때만 오버레이 표시 -->
     <div
+      v-if="editMode"
       class="canvas-overlay"
+      :draggable="!!store.selectedId"
       @dragover.prevent="onDragOver"
       @dragleave="onDragLeave"
       @drop.prevent="onDrop"
       @click="onClick"
+      @dragstart="onOverlayDragStart"
+      @dragend="onOverlayDragEnd"
     >
-      <!-- 선택 하이라이트 -->
-      <div
+      <!-- <div
         v-if="selectionRect"
         class="canvas-overlay__selection"
         :style="{
@@ -26,9 +28,8 @@
           width: selectionRect.width + 'px',
           height: selectionRect.height + 'px',
         }"
-      />
+      /> -->
 
-      <!-- 드롭 인디케이터 -->
       <div
         v-if="dropIndicator"
         class="canvas-overlay__indicator"
@@ -53,8 +54,8 @@ const store = useEditorStore();
 const containerEl = ref<HTMLElement>();
 const iframeEl = ref<HTMLIFrameElement>();
 const iframeReady = ref(false);
+const editMode = ref(true);
 
-// canvas-app의 dev server 주소
 const canvasAppUrl = 'http://localhost:5174';
 
 const dropIndicator = ref<{
@@ -63,18 +64,16 @@ const dropIndicator = ref<{
   width: number;
   height: number;
 } | null>(null);
-const selectionRect = ref<{
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-} | null>(null);
+// const selectionRect = ref<{
+//   x: number;
+//   y: number;
+//   width: number;
+//   height: number;
+// } | null>(null);
 const pendingDropTarget = ref<DropTarget | null>(null);
 const nodeRects = ref<
   Record<string, { x: number; y: number; width: number; height: number }>
 >({});
-
-// ─── iframe 통신 ───
 
 function sendToIframe(type: string, payload: Record<string, any> = {}) {
   if (!iframeEl.value?.contentWindow) return;
@@ -91,8 +90,9 @@ function handleIframeMessage(e: MessageEvent) {
   switch (data.type) {
     case 'ready':
       iframeReady.value = true;
-      // 현재 트리 전송
-      sendToIframe('render', { tree: toRaw(store.tree) });
+      sendToIframe('render', {
+        tree: JSON.parse(JSON.stringify(toRaw(store.tree))),
+      });
       break;
 
     case 'drop-target':
@@ -111,16 +111,17 @@ function handleIframeMessage(e: MessageEvent) {
 
     case 'node-rects':
       nodeRects.value = data.rects;
-      updateSelectionRect();
+      // updateSelectionRect();
       break;
 
     case 'click-node':
       store.selectNode(data.nodeId);
       break;
+    case 'script-result':
+      store.scriptStatus = data;
+      break;
   }
 }
-
-// ─── 트리 변경 → iframe 동기화 ───
 
 watch(
   () => store.tree,
@@ -133,7 +134,6 @@ watch(
   { deep: true },
 );
 
-// 선택 변경 → iframe에 알림
 watch(
   () => store.selectedId,
   (id) => {
@@ -142,19 +142,17 @@ watch(
     } else {
       sendToIframe('deselect');
     }
-    updateSelectionRect();
+    // updateSelectionRect();
   },
 );
 
-function updateSelectionRect() {
-  if (!store.selectedId || !nodeRects.value[store.selectedId]) {
-    selectionRect.value = null;
-    return;
-  }
-  selectionRect.value = nodeRects.value[store.selectedId];
-}
-
-// ─── 오버레이 이벤트 핸들러 ───
+// function updateSelectionRect() {
+//   if (!store.selectedId || !nodeRects.value[store.selectedId]) {
+//     selectionRect.value = null;
+//     return;
+//   }
+//   selectionRect.value = nodeRects.value[store.selectedId];
+// }
 
 function getIframeRelativeCoords(e: MouseEvent) {
   const rect = iframeEl.value!.getBoundingClientRect();
@@ -173,7 +171,6 @@ function onDragOver(e: DragEvent) {
 }
 
 function onDragLeave(e: DragEvent) {
-  // 컨테이너 바깥으로 나갔을 때만
   const rect = containerEl.value!.getBoundingClientRect();
   if (
     e.clientX < rect.left ||
@@ -189,6 +186,10 @@ function onDragLeave(e: DragEvent) {
 
 function onDrop() {
   if (!store.dragItem || !pendingDropTarget.value) return;
+  console.log('[Canvas] onDrop', {
+    dragItem: JSON.stringify(store.dragItem),
+    dropTarget: JSON.stringify(pendingDropTarget.value),
+  });
   store.executeDrop(pendingDropTarget.value);
   dropIndicator.value = null;
   pendingDropTarget.value = null;
@@ -200,18 +201,71 @@ function onClick(e: MouseEvent) {
   sendToIframe('click', coords);
 }
 
-function onIframeLoad() {
-  // iframe이 로드되면 ready 메시지를 기다림
+function onOverlayDragStart(e: DragEvent) {
+  if (!store.selectedId) {
+    e.preventDefault();
+    return;
+  }
+
+  e.dataTransfer!.setData('text/plain', store.selectedId);
+  e.dataTransfer!.effectAllowed = 'move';
+  store.startDrag({ source: 'canvas', id: store.selectedId });
+
+  // 드래그 이미지를 작게 (기본 오버레이 전체가 드래그 이미지가 되는 걸 방지)
+  const ghost = document.createElement('div');
+  ghost.textContent = store.selectedNode?.type ?? '';
+  ghost.style.cssText =
+    'position:fixed;top:-100px;padding:4px 10px;background:#6366f1;color:#fff;border-radius:4px;font-size:12px;font-weight:600;';
+  document.body.appendChild(ghost);
+  e.dataTransfer!.setDragImage(ghost, 0, 0);
+  setTimeout(() => document.body.removeChild(ghost), 0);
 }
 
-// ─── 라이프사이클 ───
+function onOverlayDragEnd() {
+  store.endDrag();
+}
+
+function onIframeLoad() {}
+
+function applyScript() {
+  if (!iframeReady.value) return;
+  sendToIframe('execute-script', { script: store.script });
+}
+
+function setEditMode(value: boolean) {
+  editMode.value = value;
+  sendToIframe('set-edit-mode', { value });
+  if (value) {
+    requestRectsUpdate();
+  }
+}
+
+defineExpose({ applyScript, setEditMode, editMode });
+
+let resizeObserver: ResizeObserver | null = null;
+
+function requestRectsUpdate() {
+  if (!iframeReady.value) return;
+  sendToIframe('request-rects');
+}
 
 onMounted(() => {
   window.addEventListener('message', handleIframeMessage);
+
+  resizeObserver = new ResizeObserver(() => {
+    requestRectsUpdate();
+  });
+  if (containerEl.value) {
+    resizeObserver.observe(containerEl.value);
+  }
+
+  window.addEventListener('resize', requestRectsUpdate);
 });
 
 onBeforeUnmount(() => {
   window.removeEventListener('message', handleIframeMessage);
+  window.removeEventListener('resize', requestRectsUpdate);
+  resizeObserver?.disconnect();
 });
 </script>
 
@@ -236,20 +290,19 @@ onBeforeUnmount(() => {
   width: 100%;
   height: 100%;
   z-index: 10;
-  // 오버레이가 이벤트를 받되, 시각적으로 투명
   background: transparent;
 
-  &__selection {
-    position: absolute;
-    border: 2px solid var(--ide-primary);
-    border-radius: 3px;
-    pointer-events: none;
-    z-index: 11;
-    transition: all 0.1s ease;
-    box-shadow:
-      0 0 0 1px var(--ide-primary),
-      0 0 12px rgba(99, 102, 241, 0.2);
-  }
+  // &__selection {
+  //   position: absolute;
+  //   border: 2px solid var(--ide-primary);
+  //   border-radius: 3px;
+  //   pointer-events: none;
+  //   z-index: 11;
+  //   transition: all 0.1s ease;
+  //   box-shadow:
+  //     0 0 0 1px var(--ide-primary),
+  //     0 0 12px rgba(99, 102, 241, 0.2);
+  // }
 
   &__indicator {
     position: absolute;

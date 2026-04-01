@@ -9,7 +9,7 @@ export function useDropDetector(
 
     if (data.type === 'dragover') {
       const result = detectDropPosition(data.x, data.y);
-      sendToParent('drop-target', result ? { result } : { result: null });
+      sendToParent('drop-target', { result });
     }
 
     if (data.type === 'dragleave') {
@@ -17,218 +17,211 @@ export function useDropDetector(
     }
   }
 
+  /**
+   * data-node-id가 있는 가장 가까운 직계 형제 노드들을 찾는다.
+   * display: contents 래퍼를 무시하고 논리적 자식만 반환.
+   */
+  function getLogicalChildren(container: HTMLElement): HTMLElement[] {
+    const result: HTMLElement[] = [];
+
+    function walk(el: HTMLElement) {
+      for (const child of Array.from(el.children) as HTMLElement[]) {
+        if (child.hasAttribute('data-node-id')) {
+          result.push(child);
+        } else if (getComputedStyle(child).display === 'contents') {
+          // display: contents 래퍼는 건너뛰고 그 안을 탐색
+          walk(child);
+        }
+      }
+    }
+
+    walk(container);
+    return result;
+  }
+
+  /**
+   * 특정 nodeEl이 container의 논리적 자식 중 몇 번째인지 계산
+   */
+  function getLogicalIndex(
+    nodeEl: HTMLElement,
+    container: HTMLElement,
+  ): number {
+    const siblings = getLogicalChildren(container);
+    return siblings.indexOf(nodeEl);
+  }
+
+  /**
+   * container의 flex-direction을 읽는다.
+   * display: contents면 실제 레이아웃 부모에서 읽는다.
+   */
+  function getFlexDirection(container: HTMLElement): 'horizontal' | 'vertical' {
+    let target = container;
+    let style = getComputedStyle(target);
+
+    // display: contents면 부모로 올라감
+    while (style.display === 'contents' && target.parentElement) {
+      target = target.parentElement;
+      style = getComputedStyle(target);
+    }
+
+    if (
+      style.flexDirection === 'row' ||
+      style.flexDirection === 'row-reverse'
+    ) {
+      return 'horizontal';
+    }
+
+    if (
+      style.display === 'grid' &&
+      (style.gridAutoFlow?.includes('column') ?? false)
+    ) {
+      return 'horizontal';
+    }
+
+    return 'vertical';
+  }
+
+  /**
+   * nodeEl의 논리적 부모 컨테이너를 찾는다.
+   * display: contents 래퍼가 아닌 실제 data-node-id를 가진 부모.
+   */
+  function getLogicalParentNode(nodeEl: HTMLElement): HTMLElement | null {
+    let current = nodeEl.parentElement;
+    while (current) {
+      // data-slot-name이나 data-children을 가진 래퍼를 건너뜀
+      if (current.hasAttribute('data-node-id')) {
+        return current;
+      }
+      current = current.parentElement;
+    }
+    return null;
+  }
+
+  /**
+   * nodeEl이 속한 슬롯 이름을 찾는다.
+   */
+  function getSlotName(nodeEl: HTMLElement): string | undefined {
+    let current = nodeEl.parentElement;
+    while (current) {
+      if (current.hasAttribute('data-slot-name')) {
+        return current.getAttribute('data-slot-name')!;
+      }
+      if (current.hasAttribute('data-node-id')) {
+        break; // 부모 노드까지 왔으면 슬롯 밖
+      }
+      current = current.parentElement;
+    }
+    return undefined;
+  }
+
+  /**
+   * nodeEl이 속한 직접 컨테이너(slot zone, children zone, 또는 canvas-root)를 찾는다.
+   */
+  function getDirectContainer(nodeEl: HTMLElement): HTMLElement {
+    let current = nodeEl.parentElement;
+    while (current) {
+      if (
+        current.hasAttribute('data-slot-name') ||
+        current.hasAttribute('data-children') ||
+        current.id === 'canvas-root'
+      ) {
+        return current;
+      }
+      // display: contents 래퍼는 건너뜀
+      if (getComputedStyle(current).display === 'contents') {
+        current = current.parentElement;
+        continue;
+      }
+      current = current.parentElement;
+    }
+    return document.getElementById('canvas-root')!;
+  }
+
   function detectDropPosition(x: number, y: number) {
     const el = document.elementFromPoint(x, y);
     if (!el) return null;
 
-    // 슬롯 드롭존 체크 (우선)
-    const slotZone = el.closest('[data-slot-name]') as HTMLElement | null;
-    if (slotZone) {
-      const parentNodeEl = slotZone.closest('[data-node-id]') as HTMLElement;
-      if (!parentNodeEl) return null;
-
-      const parentId = parentNodeEl.getAttribute('data-node-id')!;
-      const slotName = slotZone.getAttribute('data-slot-name')!;
-      const childCount = slotZone.querySelectorAll(
-        ':scope > [data-node-id]',
-      ).length;
-      const rect = slotZone.getBoundingClientRect();
-
-      // 슬롯 내부에 자식이 있으면 자식 기준으로 before/after 계산
-      const childNodeEl = el.closest('[data-node-id]') as HTMLElement | null;
-      if (
-        childNodeEl &&
-        childNodeEl !== parentNodeEl &&
-        slotZone.contains(childNodeEl)
-      ) {
-        return calcPositionRelativeToNode(
-          childNodeEl,
-          x,
-          y,
-          parentId,
-          slotName,
-          slotZone,
-        );
-      }
-
-      // 빈 슬롯이면 index 0으로 inside
-      return {
-        parentId,
-        slotName,
-        index: childCount,
-        indicator: {
-          x: rect.x,
-          y: rect.bottom - 2,
-          width: rect.width,
-          height: 3,
-        },
-      };
-    }
-
-    // children 영역 체크
-    const childrenZone = el.closest('[data-children]') as HTMLElement | null;
-    if (childrenZone) {
-      const parentNodeEl = childrenZone.closest(
-        '[data-node-id]',
-      ) as HTMLElement;
-      if (!parentNodeEl) return null;
-
-      const parentId = parentNodeEl.getAttribute('data-node-id')!;
-      const childCount = childrenZone.querySelectorAll(
-        ':scope > [data-node-id]',
-      ).length;
-
-      const childNodeEl = el.closest('[data-node-id]') as HTMLElement | null;
-      if (
-        childNodeEl &&
-        childNodeEl !== parentNodeEl &&
-        childrenZone.contains(childNodeEl)
-      ) {
-        return calcPositionRelativeToNode(
-          childNodeEl,
-          x,
-          y,
-          parentId,
-          undefined,
-          childrenZone,
-        );
-      }
-
-      const rect = childrenZone.getBoundingClientRect();
-      return {
-        parentId,
-        slotName: undefined,
-        index: childCount,
-        indicator: {
-          x: rect.x,
-          y: rect.bottom - 2,
-          width: rect.width,
-          height: 3,
-        },
-      };
-    }
-
-    // 일반 노드 (루트 레벨)
+    // 가장 가까운 노드 요소 찾기
     const nodeEl = el.closest('[data-node-id]') as HTMLElement | null;
-    if (nodeEl) {
-      const canvasRoot = document.getElementById('canvas-root')!;
-      // 이 노드가 루트 직접 자식인지 확인
-      if (
-        nodeEl.parentElement === canvasRoot ||
-        nodeEl.parentElement?.closest('[data-node-id]') === null
-      ) {
-        return calcPositionRelativeToNode(
-          nodeEl,
-          x,
-          y,
-          'root',
-          undefined,
-          canvasRoot,
-        );
-      }
+
+    if (!nodeEl) {
+      // 빈 영역 → 루트 마지막에 삽입
+      const rootEl = document.getElementById('canvas-root')!;
+      const rootChildren = getLogicalChildren(rootEl);
+      const rootRect = rootEl.getBoundingClientRect();
+      return {
+        parentId: 'root',
+        slotName: undefined,
+        index: rootChildren.length,
+        indicator: {
+          x: rootRect.x,
+          y: rootRect.bottom,
+          width: rootRect.width,
+          height: 3,
+        },
+      };
     }
 
-    // 빈 영역 → 루트 마지막에 삽입
-    const rootEl = document.getElementById('canvas-root')!;
-    const rootRect = rootEl.getBoundingClientRect();
-    const rootChildCount = rootEl.querySelectorAll(
-      ':scope > [data-node-id]',
-    ).length;
-    return {
-      parentId: 'root',
-      slotName: undefined,
-      index: rootChildCount,
-      indicator: {
-        x: rootRect.x,
-        y: rootRect.bottom,
-        width: rootRect.width,
-        height: 3,
-      },
-    };
-  }
-
-  function calcPositionRelativeToNode(
-    nodeEl: HTMLElement,
-    x: number,
-    y: number,
-    parentId: string,
-    slotName: string | undefined,
-    container: HTMLElement,
-  ) {
     const rect = nodeEl.getBoundingClientRect();
     const nodeId = nodeEl.getAttribute('data-node-id')!;
 
-    // 이 노드가 컨테이너이고 안쪽 영역에 마우스가 있으면 inside
+    // ── 컨테이너 노드의 안쪽 영역인지 판단 ──
     if (nodeEl.hasAttribute('data-container')) {
-      const margin = Math.min(rect.width, rect.height) * 0.2;
-      if (
-        x > rect.left + margin &&
-        x < rect.right - margin &&
-        y > rect.top + margin &&
-        y < rect.bottom - margin
-      ) {
-        // children 영역 찾기
-        const childrenEl = nodeEl.querySelector(':scope > [data-children]');
-        const slotEls = nodeEl.querySelectorAll(':scope > [data-slot-name]');
+      const marginX = rect.width * 0.2;
+      const marginY = rect.height * 0.2;
 
-        if (childrenEl) {
-          const cr = childrenEl.getBoundingClientRect();
-          const count = childrenEl.querySelectorAll(
-            ':scope > [data-node-id]',
-          ).length;
-          return {
-            parentId: nodeId,
-            slotName: undefined,
-            index: count,
-            indicator: {
-              x: cr.x + 4,
-              y: cr.bottom - 2,
-              width: cr.width - 8,
-              height: 3,
-            },
-          };
-        }
+      const isInside =
+        x > rect.left + marginX &&
+        x < rect.right - marginX &&
+        y > rect.top + marginY &&
+        y < rect.bottom - marginY;
 
-        if (slotEls.length > 0) {
-          // 첫 번째 슬롯에 넣기
-          const firstSlot = slotEls[0] as HTMLElement;
-          const sn = firstSlot.getAttribute('data-slot-name')!;
-          const sr = firstSlot.getBoundingClientRect();
-          const count = firstSlot.querySelectorAll(
-            ':scope > [data-node-id]',
-          ).length;
-          return {
-            parentId: nodeId,
-            slotName: sn,
-            index: count,
-            indicator: {
-              x: sr.x + 4,
-              y: sr.bottom - 2,
-              width: sr.width - 8,
-              height: 3,
-            },
-          };
-        }
+      if (isInside) {
+        return {
+          parentId: nodeId,
+          slotName: undefined,
+          index: 0,
+          indicator: {
+            x: rect.x + 4,
+            y: rect.y + rect.height / 2,
+            width: rect.width - 8,
+            height: 3,
+          },
+        };
       }
     }
 
-    // before/after 판단
-    const style = getComputedStyle(container);
-    const isHorizontal =
-      style.flexDirection === 'row' ||
-      style.flexDirection === 'row-reverse' ||
-      (style.display === 'grid' && style.gridAutoFlow?.includes('column'));
+    // ── before / after 판단 ──
+    const container = getDirectContainer(nodeEl);
+    const direction = getFlexDirection(container);
+    const logicalParent = getLogicalParentNode(nodeEl);
+    // const slotName = getSlotName(nodeEl);
 
-    // 형제 중 인덱스 계산
-    const siblings = Array.from(
-      container.querySelectorAll(':scope > [data-node-id]'),
-    );
-    const siblingIndex = siblings.indexOf(nodeEl);
+    // const parentId = logicalParent
+    //   ? logicalParent.getAttribute('data-node-id')!
+    //   : 'root';
+    let parentId: string;
+    let slotName: string | undefined;
+
+    if (container.id === 'canvas-root') {
+      parentId = 'root';
+      slotName = undefined;
+    } else if (container.hasAttribute('data-slot-name')) {
+      parentId = getLogicalParentNode(container)?.getAttribute('data-node-id')!;
+      slotName = container.getAttribute('data-slot-name')!;
+    } else if (container.hasAttribute('data-children')) {
+      parentId = getLogicalParentNode(container)?.getAttribute('data-node-id')!;
+      slotName = undefined;
+    } else {
+      parentId = 'root';
+    }
+
+    const siblingIndex = getLogicalIndex(nodeEl, container);
 
     let position: 'before' | 'after';
     let indicator: { x: number; y: number; width: number; height: number };
 
-    if (isHorizontal) {
+    if (direction === 'horizontal') {
       position = x - rect.left < rect.width / 2 ? 'before' : 'after';
       const ix = position === 'before' ? rect.left - 1.5 : rect.right + 1.5;
       indicator = { x: ix, y: rect.top, width: 3, height: rect.height };
@@ -238,12 +231,33 @@ export function useDropDetector(
       indicator = { x: rect.left, y: iy, width: rect.width, height: 3 };
     }
 
-    return {
+    const index = position === 'before' ? siblingIndex : siblingIndex + 1;
+
+    const finalResult = {
       parentId,
       slotName,
-      index: position === 'before' ? siblingIndex : siblingIndex + 1,
+      index: Math.max(0, index),
       indicator,
     };
+
+    console.log('[DropDetector]', {
+      nodeId,
+      nodeType: nodeEl.getAttribute('data-node-type'),
+      containerId:
+        container.id ||
+        container.getAttribute('data-node-id') ||
+        container.getAttribute('data-children') ||
+        container.getAttribute('data-slot-name'),
+      direction,
+      siblingIndex,
+      position,
+      finalIndex: finalResult.index,
+      siblings: getLogicalChildren(container).map((el) =>
+        el.getAttribute('data-node-id'),
+      ),
+    });
+
+    return finalResult;
   }
 
   onMounted(() => window.addEventListener('message', handleMessage));

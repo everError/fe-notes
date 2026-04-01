@@ -70,27 +70,51 @@
               </option>
             </select>
 
-            <!-- Binding (스크립트 변수 연결) -->
-            <select
+            <!-- Binding (스크립트 변수/표현식 연결) -->
+            <div
               v-else-if="fieldDef.type === 'binding'"
-              :value="store.selectedNode!.props[key] ?? ''"
-              class="props-panel__select props-panel__select--binding"
-              @change="
-                onPropChange(
-                  key as string,
-                  ($event.target as HTMLSelectElement).value,
-                )
-              "
+              class="props-panel__binding"
             >
-              <option value="">(바인딩 없음)</option>
-              <option
-                v-for="v in getBindableVars(fieldDef.bindingFilter)"
-                :key="v.name"
-                :value="v.name"
+              <input
+                type="text"
+                :value="store.selectedNode!.props[key] ?? ''"
+                class="props-panel__input props-panel__input--binding"
+                :placeholder="fieldDef.description || '변수명 또는 표현식'"
+                @input="
+                  onPropChange(
+                    key as string,
+                    ($event.target as HTMLInputElement).value,
+                  )
+                "
+                @focus="showBindingSuggestions = key as string"
+                @blur="hideSuggestions"
+              />
+              <!-- 자동완성 드롭다운 -->
+              <div
+                v-if="showBindingSuggestions === key"
+                class="props-panel__suggestions"
               >
-                {{ v.name }} ({{ v.type }})
-              </option>
-            </select>
+                <div
+                  v-for="s in getSuggestions(key as string)"
+                  :key="s.value"
+                  class="props-panel__suggestion"
+                  @mousedown.prevent="
+                    onSelectSuggestion(key as string, s.value)
+                  "
+                >
+                  <span class="props-panel__suggestion-name">{{
+                    s.value
+                  }}</span>
+                  <span class="props-panel__suggestion-type">{{ s.type }}</span>
+                </div>
+                <div
+                  v-if="getSuggestions(key as string).length === 0"
+                  class="props-panel__suggestion-empty"
+                >
+                  스크립트를 먼저 적용하세요
+                </div>
+              </div>
+            </div>
 
             <!-- Number -->
             <input
@@ -184,7 +208,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, toRef } from 'vue';
+import { computed, ref, toRef } from 'vue';
 import { componentRegistry } from '@ide-demo/editor';
 import { useEditorStore } from '@/composables/useEditorStore';
 import { useScriptParser } from '@/composables/useScriptParser';
@@ -198,6 +222,47 @@ const meta = computed(() => {
   if (!store.selectedNode) return null;
   return componentRegistry[store.selectedNode.type];
 });
+
+const showBindingSuggestions = ref<string | null>(null);
+
+function hideSuggestions() {
+  // blur 시 약간의 딜레이 (mousedown이 먼저 처리되도록)
+  setTimeout(() => {
+    showBindingSuggestions.value = null;
+  }, 150);
+}
+
+function getSuggestions(propKey: string): { value: string; type: string }[] {
+  const suggestions: { value: string; type: string }[] = [];
+
+  // store.scriptStatus에서 바인딩 이름 가져오기
+  const bindingNames = store.scriptStatus?.bindingNames ?? [];
+
+  for (const name of bindingNames) {
+    // 변수 자체
+    suggestions.push({ value: name, type: 'var' });
+    // .value (ref인 경우 — NodeWrapper에서 unref하므로 안 붙여도 되지만 옵션으로)
+    // .data 같은 하위 속성 접근용
+    suggestions.push({ value: `${name}.data`, type: 'nested' });
+    suggestions.push({ value: `${name}.data.value`, type: 'nested' });
+  }
+
+  // 현재 입력값으로 필터
+  const current = store.selectedNode?.props[propKey] ?? '';
+  if (current) {
+    return suggestions.filter((s) =>
+      s.value.toLowerCase().includes(current.toLowerCase()),
+    );
+  }
+
+  return suggestions;
+}
+
+function onSelectSuggestion(propKey: string, value: string) {
+  if (!store.selectedId) return;
+  store.updateNodeProp(store.selectedId, propKey, value);
+  showBindingSuggestions.value = null;
+}
 
 function getBindableVars(filterTypes?: string[]) {
   return getBindableVariables(filterTypes);
@@ -386,6 +451,61 @@ function onEventChange(eventName: string, handlerName: string) {
     &:hover {
       background: rgba(239, 68, 68, 0.2);
       border-color: var(--ide-accent-red);
+    }
+
+    &__binding {
+      position: relative;
+    }
+
+    &__input--binding {
+      border-color: rgba(99, 102, 241, 0.4);
+      font-family: var(--ide-font-mono);
+    }
+
+    &__suggestions {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      background: var(--ide-bg);
+      border: 1px solid var(--ide-border-hover);
+      border-radius: 5px;
+      margin-top: 2px;
+      max-height: 180px;
+      overflow-y: auto;
+      z-index: 100;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+
+    &__suggestion {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 5px 10px;
+      cursor: pointer;
+      font-size: 12px;
+      transition: background 0.08s;
+
+      &:hover {
+        background: var(--ide-primary-dim);
+      }
+    }
+
+    &__suggestion-name {
+      font-family: var(--ide-font-mono);
+      color: var(--ide-text);
+    }
+
+    &__suggestion-type {
+      font-size: 10px;
+      color: var(--ide-text-dimmer);
+    }
+
+    &__suggestion-empty {
+      padding: 8px 10px;
+      font-size: 11px;
+      color: var(--ide-text-dimmer);
+      text-align: center;
     }
   }
 }

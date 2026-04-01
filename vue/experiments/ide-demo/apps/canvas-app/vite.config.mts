@@ -16,5 +16,16 @@ export default defineConfig({
   },
   server: {
     port: 5174, // ide는 5173, canvas-app은 5174
+    proxy: {
+      '/std': {
+        target: 'http://localhost:5066/',
+        changeOrigin: true,
+      },
+      '/ws': {
+        target: 'http://localhost:5010/',
+        changeOrigin: true,
+        ws: true,
+      },
+    },
   },
 });

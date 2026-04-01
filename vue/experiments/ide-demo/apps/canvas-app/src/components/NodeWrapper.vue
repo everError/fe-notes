@@ -1,108 +1,246 @@
-<template>
-  <component
-    :is="resolvedTag"
-    :data-node-id="node.id"
-    :data-container="meta?.canHaveChildren ? '' : undefined"
-    v-bind="cleanProps"
-    :class="[node.props.class, { 'node--selected': isSelected }]"
-  >
-    <!--
-      슬롯이 있는 컨테이너 (Card 등)
-      각 슬롯을 template #slotName 으로 렌더링
-    -->
-    <template
-      v-for="slotDef in meta?.slots ?? []"
-      :key="slotDef.name"
-      #[slotDef.name]
-    >
-      <div
-        :data-slot-name="slotDef.name"
-        :data-parent-id="node.id"
-        :class="[
-          'slot-zone',
-          { 'slot-drop-zone': !node.slots[slotDef.name]?.length },
-        ]"
-      >
-        <NodeWrapper
-          v-for="child in node.slots[slotDef.name] ?? []"
-          :key="child.id"
-          :node="child"
-          :selected-id="selectedId"
-        />
-        <span v-if="!node.slots[slotDef.name]?.length" class="slot-label">
-          #{{ slotDef.name }}
-        </span>
-      </div>
-    </template>
-
-    <!--
-      슬롯 없는 컨테이너 (Div 등)
-      children을 data-children 래퍼 안에 렌더링
-    -->
-    <div
-      v-if="meta?.canHaveChildren && !meta?.slots?.length"
-      data-children
-      :class="['children-zone', { 'slot-drop-zone': !node.children?.length }]"
-    >
-      <NodeWrapper
-        v-for="child in node.children ?? []"
-        :key="child.id"
-        :node="child"
-        :selected-id="selectedId"
-      />
-      <span v-if="!node.children?.length" class="slot-label">
-        자식 컴포넌트를 드롭하세요
-      </span>
-    </div>
-  </component>
-</template>
-
-<script setup lang="ts">
-import { computed } from 'vue';
+<script lang="ts">
+import {
+  defineComponent,
+  computed,
+  h,
+  resolveComponent,
+  isRef,
+  unref,
+  type PropType,
+  type VNode,
+} from 'vue';
 import type { EditorNode } from '@ide-demo/editor';
 import { componentRegistry } from '@ide-demo/editor';
 
-const props = defineProps<{
-  node: EditorNode;
-  selectedId: string | null;
-}>();
+export default defineComponent({
+  name: 'NodeWrapper',
 
-const meta = computed(() => componentRegistry[props.node.type] ?? null);
+  props: {
+    node: {
+      type: Object as PropType<EditorNode>,
+      required: true,
+    },
+    selectedId: {
+      type: String as PropType<string | null>,
+      default: null,
+    },
+    bindings: {
+      type: Object as PropType<Record<string, any>>,
+      default: () => ({}),
+    },
+  },
 
-// Div는 html div로, 나머지는 전역 등록된 컴포넌트명 사용
-const resolvedTag = computed(() => {
-  if (props.node.type === 'Div') return 'div';
-  return meta.value?.tagName ?? props.node.type;
-});
+  setup(props) {
+    const meta = computed(() => componentRegistry[props.node.type] ?? null);
 
-const isSelected = computed(() => props.selectedId === props.node.id);
+    /**
+     * 바인딩 표현식을 실제 값으로 해석
+     * 'systems' → bindings.systems (unref)
+     * 'systems.data' → bindings.systems.data (unref 후 접근)
+     * 'systems.data.value' → bindings.systems.data.value
+     * 'colDefs' → bindings.colDefs (unref)
+     */
+    function resolveBindingExpression(
+      expr: string,
+      bindings: Record<string, any>,
+    ): any {
+      if (!expr || !bindings) return undefined;
 
-// class를 제외한 props만 v-bind으로 전달
-const cleanProps = computed(() => {
-  const result: Record<string, any> = {};
-  for (const [key, value] of Object.entries(props.node.props)) {
-    if (key === 'class') continue;
-    if (value === '' || value === undefined || value === null) continue;
-    result[key] = value;
-  }
-  return result;
+      const parts = expr.split('.');
+      let current: any = bindings;
+
+      for (let i = 0; i < parts.length; i++) {
+        if (current === undefined || current === null) return undefined;
+
+        // 현재 값이 ref면 .value를 꺼냄 (단, 다음 part가 'value'면 직접 접근)
+        if (isRef(current) && parts[i] !== 'value') {
+          current = current.value;
+        }
+
+        if (i === 0) {
+          // 첫 번째 파트는 bindings에서 가져옴
+          current = current[parts[i]];
+        } else {
+          // 나머지는 property 접근
+          current = current[parts[i]];
+        }
+      }
+
+      // 최종 값도 ref면 unref
+      return unref(current);
+    }
+
+    const resolvedTag = computed(() => {
+      const tagName =
+        props.node.type === 'Div'
+          ? 'div'
+          : (meta.value?.tagName ?? props.node.type);
+      const nativeTags = [
+        'div',
+        'span',
+        'p',
+        'section',
+        'header',
+        'footer',
+        'main',
+        'nav',
+        'aside',
+        'article',
+      ];
+      if (nativeTags.includes(tagName)) return tagName;
+      return resolveComponent(tagName);
+    });
+
+    const isSelected = computed(() => props.selectedId === props.node.id);
+
+    return () => {
+      const tag = resolvedTag.value;
+      const NodeWrapperComp = resolveComponent('NodeWrapper');
+      const metaProps = meta.value?.props ?? {};
+
+      // ── props 빌드 (render 안에서 해야 ref 추적됨) ──
+      const builtProps: Record<string, any> = {};
+      for (const [key, value] of Object.entries(props.node.props)) {
+        if (key === 'class') continue;
+        if (value === '' || value === undefined || value === null) continue;
+
+        if (metaProps[key]?.type === 'binding') {
+          const resolved = resolveBindingExpression(value, props.bindings);
+          if (resolved !== undefined) {
+            builtProps[key] = resolved;
+          }
+          continue;
+        }
+
+        builtProps[key] = value;
+      }
+
+      // ── events 빌드 ──
+      const builtEvents: Record<string, Function> = {};
+      for (const [eventName, handlerName] of Object.entries(
+        props.node.events,
+      )) {
+        if (!handlerName) continue;
+        const handler = props.bindings[handlerName];
+        if (typeof handler === 'function') {
+          // Vue h()에서 이벤트는 onXxx 형식
+          const vueEventKey =
+            'on' + eventName.charAt(0).toUpperCase() + eventName.slice(1);
+          builtEvents[vueEventKey] = (...args: any[]) => {
+            try {
+              handler(...args);
+            } catch (e) {
+              console.warn(
+                `[NodeWrapper] 이벤트 핸들러 실행 실패: ${handlerName}`,
+                e,
+              );
+            }
+          };
+        }
+      }
+
+      const nodeAttrs: Record<string, any> = {
+        ...builtProps,
+        ...builtEvents,
+        'data-node-id': props.node.id,
+        'data-node-type': props.node.type,
+        class: [props.node.props.class, { 'node--selected': isSelected.value }],
+      };
+
+      if (meta.value?.canHaveChildren) {
+        nodeAttrs['data-container'] = '';
+      }
+
+      // ── 슬롯이 있는 컨테이너 ──
+      if (meta.value?.canHaveChildren && meta.value.slots.length > 0) {
+        const slots: Record<string, () => VNode | VNode[]> = {};
+
+        for (const slotDef of meta.value.slots) {
+          const slotNodes = props.node.slots[slotDef.name] ?? [];
+
+          if (slotNodes.length > 0) {
+            slots[slotDef.name] = () =>
+              h(
+                'div',
+                {
+                  'data-slot-name': slotDef.name,
+                  'data-parent-id': props.node.id,
+                  style: { display: 'contents' },
+                },
+                slotNodes.map((child) =>
+                  h(NodeWrapperComp, {
+                    key: child.id,
+                    node: child,
+                    selectedId: props.selectedId,
+                    bindings: props.bindings,
+                  }),
+                ),
+              );
+          }
+        }
+
+        return h(tag, nodeAttrs, slots);
+      }
+
+      // ── 슬롯 없는 컨테이너 ──
+      if (meta.value?.canHaveChildren) {
+        const childNodes = props.node.children ?? [];
+
+        if (childNodes.length) {
+          return h(tag, nodeAttrs, [
+            h(
+              'div',
+              {
+                'data-children': '',
+                style: { display: 'contents' },
+              },
+              childNodes.map((child) =>
+                h(NodeWrapperComp, {
+                  key: child.id,
+                  node: child,
+                  selectedId: props.selectedId,
+                  bindings: props.bindings,
+                }),
+              ),
+            ),
+          ]);
+        }
+
+        return h(tag, nodeAttrs, [
+          h(
+            'div',
+            {
+              'data-children': '',
+              class: 'slot-drop-zone',
+            },
+            [h('span', { class: 'slot-label' }, '자식 컴포넌트를 드롭하세요')],
+          ),
+        ]);
+      }
+
+      // ── 비컨테이너 ──
+      return h(tag, nodeAttrs);
+    };
+  },
 });
 </script>
 
-<style scoped>
-.slot-zone {
-  min-height: 8px;
+<style>
+/* .node--selected {
+  outline: 2px solid #6366f1 !important;
+  outline-offset: 2px;
+} */
+.slot-drop-zone {
+  min-height: 32px;
+  border: 1.5px dashed #d1d5db;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
 }
-
 .slot-label {
   font-size: 11px;
   color: #9ca3af;
 }
-
-.children-zone {
-  min-height: 8px;
-}
 </style>
-``` --- ## 4. ide 앱 변경사항 ### 삭제할 파일 ```
-src/components/canvas/CanvasNode.vue ← 삭제
-src/components/canvas/ComponentPreview.vue ← 삭제
