@@ -195,26 +195,11 @@ export function useDropDetector(
     const container = getDirectContainer(nodeEl);
     const direction = getFlexDirection(container);
     const logicalParent = getLogicalParentNode(nodeEl);
-    // const slotName = getSlotName(nodeEl);
+    const slotName = getSlotName(nodeEl);
 
-    // const parentId = logicalParent
-    //   ? logicalParent.getAttribute('data-node-id')!
-    //   : 'root';
-    let parentId: string;
-    let slotName: string | undefined;
-
-    if (container.id === 'canvas-root') {
-      parentId = 'root';
-      slotName = undefined;
-    } else if (container.hasAttribute('data-slot-name')) {
-      parentId = getLogicalParentNode(container)?.getAttribute('data-node-id')!;
-      slotName = container.getAttribute('data-slot-name')!;
-    } else if (container.hasAttribute('data-children')) {
-      parentId = getLogicalParentNode(container)?.getAttribute('data-node-id')!;
-      slotName = undefined;
-    } else {
-      parentId = 'root';
-    }
+    const parentId = logicalParent
+      ? logicalParent.getAttribute('data-node-id')!
+      : 'root';
 
     const siblingIndex = getLogicalIndex(nodeEl, container);
 
