@@ -22,21 +22,22 @@ export function useDropDetector(
    * display: contents 래퍼를 무시하고 논리적 자식만 반환.
    */
   function getLogicalChildren(container: HTMLElement): HTMLElement[] {
-    const result: HTMLElement[] = [];
+    // container 하위의 모든 data-node-id 요소 중,
+    // container와 자신 사이에 다른 data-node-id가 없는 것만 = 직계 논리 자식
+    const all = Array.from(
+      container.querySelectorAll('[data-node-id]'),
+    ) as HTMLElement[];
 
-    function walk(el: HTMLElement) {
-      for (const child of Array.from(el.children) as HTMLElement[]) {
-        if (child.hasAttribute('data-node-id')) {
-          result.push(child);
-        } else if (getComputedStyle(child).display === 'contents') {
-          // display: contents 래퍼는 건너뛰고 그 안을 탐색
-          walk(child);
+    return all.filter((el) => {
+      let parent = el.parentElement;
+      while (parent && parent !== container) {
+        if (parent.hasAttribute('data-node-id')) {
+          return false;
         }
+        parent = parent.parentElement;
       }
-    }
-
-    walk(container);
-    return result;
+      return parent === container;
+    });
   }
 
   /**
@@ -225,22 +226,22 @@ export function useDropDetector(
       indicator,
     };
 
-    console.log('[DropDetector]', {
-      nodeId,
-      nodeType: nodeEl.getAttribute('data-node-type'),
-      containerId:
-        container.id ||
-        container.getAttribute('data-node-id') ||
-        container.getAttribute('data-children') ||
-        container.getAttribute('data-slot-name'),
-      direction,
-      siblingIndex,
-      position,
-      finalIndex: finalResult.index,
-      siblings: getLogicalChildren(container).map((el) =>
-        el.getAttribute('data-node-id'),
-      ),
-    });
+    // console.log('[DropDetector]', {
+    //   nodeId,
+    //   nodeType: nodeEl.getAttribute('data-node-type'),
+    //   containerId:
+    //     container.id ||
+    //     container.getAttribute('data-node-id') ||
+    //     container.getAttribute('data-children') ||
+    //     container.getAttribute('data-slot-name'),
+    //   direction,
+    //   siblingIndex,
+    //   position,
+    //   finalIndex: finalResult.index,
+    //   siblings: getLogicalChildren(container).map((el) =>
+    //     el.getAttribute('data-node-id'),
+    //   ),
+    // });
 
     return finalResult;
   }

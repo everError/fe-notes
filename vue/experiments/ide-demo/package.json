@@ -63,7 +63,8 @@
     "tailwindcss-primeui": "^0.6.1",
     "vue": "^3.5.31",
     "vue-i18n": "^11.3.0",
-    "vue-router": "^4.5.0"
+    "vue-router": "^4.5.0",
+    "monaco-editor": "^0.55.1"
   },
   "workspaces": [
     "apps/*",

@@ -2,7 +2,7 @@
   <div ref="containerEl" class="canvas-container">
     <iframe
       ref="iframeEl"
-      :src="canvasAppUrl"
+      :src="settings.canvasAppUrl"
       class="canvas-iframe"
       @load="onIframeLoad"
     />
@@ -48,6 +48,9 @@
 import { ref, watch, onMounted, onBeforeUnmount, toRaw } from 'vue';
 import { useEditorStore } from '@/composables/useEditorStore';
 import type { DropTarget } from '@ide-demo/editor';
+import { useSettings } from '@ide-demo/shared';
+
+const { settings } = useSettings();
 
 const store = useEditorStore();
 
@@ -55,8 +58,6 @@ const containerEl = ref<HTMLElement>();
 const iframeEl = ref<HTMLIFrameElement>();
 const iframeReady = ref(false);
 const editMode = ref(true);
-
-const canvasAppUrl = 'http://localhost:5174';
 
 const dropIndicator = ref<{
   x: number;
@@ -186,10 +187,10 @@ function onDragLeave(e: DragEvent) {
 
 function onDrop() {
   if (!store.dragItem || !pendingDropTarget.value) return;
-  console.log('[Canvas] onDrop', {
-    dragItem: JSON.stringify(store.dragItem),
-    dropTarget: JSON.stringify(pendingDropTarget.value),
-  });
+  // console.log('[Canvas] onDrop', {
+  //   dragItem: JSON.stringify(store.dragItem),
+  //   dropTarget: JSON.stringify(pendingDropTarget.value),
+  // });
   store.executeDrop(pendingDropTarget.value);
   dropIndicator.value = null;
   pendingDropTarget.value = null;
@@ -240,7 +241,13 @@ function setEditMode(value: boolean) {
   }
 }
 
-defineExpose({ applyScript, setEditMode, editMode });
+function syncSettings(newSettings: any) {
+  sendToIframe('update-settings', {
+    settings: JSON.parse(JSON.stringify(toRaw(newSettings))),
+  });
+}
+
+defineExpose({ applyScript, setEditMode, editMode, syncSettings });
 
 let resizeObserver: ResizeObserver | null = null;
 

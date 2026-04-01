@@ -21,4 +21,8 @@ export default defineConfig(() => ({
       '@ide-demo/editor': resolve(__dirname, '../../libs/editor/src/index.ts'),
     },
   },
+  build: {
+    outDir: '../../dist/apps/ide', // 루트의 dist 폴더로 모으기
+    emptyOutDir: true,
+  },
 }));

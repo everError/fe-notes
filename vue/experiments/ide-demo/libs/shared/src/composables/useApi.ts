@@ -3,6 +3,7 @@ import axios, { type AxiosRequestConfig, type AxiosResponse } from 'axios';
 import type { ApiResponse, FileResponse, ResultSet } from '../types/api';
 import { useLoading } from './useLoading';
 import { WEB_KEY } from '../plugins/keys';
+import { useSettings } from './editor/useSettings';
 
 /**
  * Blob 응답에서 파일 정보를 추출합니다.
@@ -171,6 +172,27 @@ export function useApi() {
 
     start();
     try {
+      // 0. settings에서 정의한 프록시 룰에 따라 URL 변환
+      const { settings } = useSettings();
+
+      // 예: url이 '/std/user'이고 proxyRules에 { path: '/std', target: 'http://api.com/' } 가 있다면
+      // finalUrl을 'http://api.com/std/user'로 변환
+      const matchedRule = settings.value.proxyRules.find((rule) =>
+        url.startsWith(rule.path),
+      );
+
+      let currentBaseUrl = config.apiBaseUrl;
+      if (matchedRule) {
+        // 상대 경로를 절대 경로로 바꿈
+        currentBaseUrl = matchedRule.target.endsWith('/')
+          ? matchedRule.target.slice(0, -1)
+          : matchedRule.target;
+      }
+
+      const client = axios.create({
+        baseURL: currentBaseUrl, // 동적으로 결정된 BaseURL 적용
+        headers: { 'Content-Type': 'application/json' },
+      });
       // 1. 인증 토큰 확보 (skipAuth면 건너뜀)
       const headers: Record<string, string> = {};
       if (!skipAuth) {

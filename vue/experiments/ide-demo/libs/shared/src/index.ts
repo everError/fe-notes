@@ -39,6 +39,7 @@ export { useLoading, globalLoading } from './composables/useLoading';
 export { defineApi } from './composables/defineApi';
 export { useSelection } from './composables/useSelection';
 export { useGridEdit } from './composables/useGridEdit';
+export { useSettings } from './composables/editor/useSettings';
 
 // utils
 export { gridColumns } from './utils/gridColumns';

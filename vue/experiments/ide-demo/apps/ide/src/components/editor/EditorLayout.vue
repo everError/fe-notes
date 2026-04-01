@@ -26,6 +26,16 @@
           >
             .vue 코드
           </button>
+          <button class="editor-toolbar__btn" @click="showSettings = true">
+            ⚙ 설정
+          </button>
+          <button
+            style="color: #f87171"
+            @click="isScriptGuideOpen = true"
+            class="editor-toolbar__btn"
+          >
+            !주의
+          </button>
         </div>
         <div class="editor-toolbar__actions">
           <button
@@ -188,6 +198,170 @@
         </div>
       </div>
     </Teleport>
+    <Teleport to="body">
+      <SettingsDialog
+        v-if="showSettings"
+        @close="showSettings = false"
+        @confirm="syncSettingsToIframe"
+      />
+    </Teleport>
+    <Teleport to="body">
+      <div
+        v-if="isScriptGuideOpen"
+        class="slot-dialog__backdrop"
+        style="
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          background: rgba(0, 0, 0, 0.5);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 10000;
+        "
+        @click.self="isScriptGuideOpen = false"
+      >
+        <div
+          class="slot-dialog"
+          style="
+            background: white;
+            border-radius: 8px;
+            width: 1200px;
+            max-width: 90%;
+            overflow: hidden;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+          "
+        >
+          <div
+            class="slot-dialog__header"
+            style="padding: 16px; border-bottom: 1px solid #e2e8f0"
+          >
+            <span
+              class="slot-dialog__title"
+              style="
+                display: block;
+                font-size: 16px;
+                font-weight: bold;
+                color: #1e293b;
+              "
+              >스크립트 실행 주의사항</span
+            >
+            <span
+              class="slot-dialog__sub"
+              style="
+                display: block;
+                font-size: 12px;
+                color: #64748b;
+                margin-top: 4px;
+              "
+              >런타임 엔진 방식에 따른 차이점을 확인하세요.</span
+            >
+          </div>
+
+          <div
+            class="slot-dialog__body"
+            style="
+              padding: 16px;
+              display: flex;
+              flex-direction: column;
+              gap: 8px;
+            "
+          >
+            <div
+              v-for="(guide, idx) in scriptGuides"
+              :key="idx"
+              class="slot-dialog__option"
+              style="
+                display: flex;
+                flex-direction: column;
+                align-items: flex-start;
+                padding: 12px;
+                border: 1px solid #e2e8f0;
+                border-radius: 6px;
+                background: #f8fafc;
+              "
+            >
+              <div
+                style="
+                  display: flex;
+                  align-items: center;
+                  gap: 8px;
+                  margin-bottom: 4px;
+                "
+              >
+                <span style="color: #f59e0b; font-weight: bold">!</span>
+                <span
+                  style="font-size: 13px; font-weight: 600; color: #1e293b"
+                  >{{ guide.title }}</span
+                >
+              </div>
+              <span
+                style="
+                  font-size: 12px;
+                  color: #475569;
+                  line-height: 1.5;
+                  margin-left: 16px;
+                "
+              >
+                {{ guide.content }}
+              </span>
+            </div>
+
+            <div
+              style="
+                margin-top: 12px;
+                padding: 12px;
+                background-color: #fef2f2;
+                border: 1px solid #fee2e2;
+                border-radius: 6px;
+              "
+            >
+              <p
+                style="
+                  font-size: 12px;
+                  color: #dc2626;
+                  font-weight: 600;
+                  line-height: 1.6;
+                  margin: 0;
+                "
+              >
+                ※ 본 시스템은 표준 Vue 컴파일러가 아닌 별도의 실행 엔진을
+                사용합니다. 이에 따라 기존 Vue 코드와 동작 방식이 다를 수
+                있으며, 현재 시스템이 파악하지 못한 예외 사례가 발생할 가능성이
+                있습니다. 코드 작성 후 반드시 실제 동작을 확인하시기 바랍니다.
+              </p>
+            </div>
+          </div>
+
+          <div
+            class="slot-dialog__footer"
+            style="
+              padding: 12px 16px;
+              background: #f8fafc;
+              border-top: 1px solid #e2e8f0;
+              text-align: right;
+            "
+          >
+            <button
+              style="
+                padding: 6px 16px;
+                background: #1e293b;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 13px;
+              "
+              @click="isScriptGuideOpen = false"
+            >
+              확인했습니다
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -200,13 +374,72 @@ import PropertyPanel from './PropertyPanel.vue';
 import { useEditorStore } from '@/composables/useEditorStore';
 import { generateVueCode, copyToClipboard } from '@/utils/code-generator';
 import ComponentTree from './ComponentTree.vue';
+import SettingsDialog from './SettingsDialog.vue';
+import { useSettings } from '@ide-demo/shared';
+
+const canvasRef = ref<InstanceType<typeof Canvas> | null>(null);
+
+function syncSettingsToIframe(newSettings: any) {
+  // canvasRef를 통해 자식 컴포넌트인 Canvas.vue의 함수를 호출
+  if (canvasRef.value) {
+    canvasRef.value.syncSettings(newSettings);
+    console.log('Iframe으로 프록시 설정 동기화 요청 완료');
+  } else {
+    console.warn(
+      'Canvas 컴포넌트가 로드되지 않아 설정을 동기화할 수 없습니다.',
+    );
+  }
+}
+// 상세 가이드 모달 표시 여부
+const isScriptGuideOpen = ref(true);
+
+// 상세 주의사항 데이터
+const scriptGuides = [
+  {
+    title: '양방향 바인딩(v-model) 제약',
+    content:
+      "v-model에는 'userName' 같은 단일 변수명만 사용하세요. 'count + 1' 같은 연산식은 값을 저장할 위치를 찾지 못해 데이터가 유실될 수 있습니다.",
+  },
+  {
+    title: '반응성(Reactivity) 추적 한계',
+    content:
+      "메소드 호출(:prop='check()')은 내부 변수 변화를 즉시 감지하지 못할 수 있습니다.",
+  },
+  {
+    title: '런타임 해석 엔진의 특성',
+    content:
+      '표준 Vue 컴파일러와 달리 실시간 문자열 해석 방식을 사용합니다. 복잡한 객체 구조나 깊은 단계의 경로는 시스템이 잘못 판단할 가능성이 있습니다.',
+  },
+  {
+    title: '.value 사용 규칙',
+    content:
+      '바인딩 창에서는 편의상 .value를 생략할 수 있지만, 스크립트 작성 영역에서는 표준 JS 규칙에 따라 .value를 명시해야 합니다.',
+  },
+  {
+    title: '동적 프록시(Proxy) 및 CORS 주의',
+    content:
+      "설정에서 변경한 프록시 타겟 주소는 브라우저가 직접 호출합니다. 호출하려는 서버에서 'CORS(Cross-Origin Resource Sharing)' 허용 설정이 되어 있지 않으면 통신이 차단됩니다.",
+  },
+  {
+    title: 'Mixed Content (보안 프로토콜) 제한',
+    content:
+      '현재 사이트가 HTTPS로 접속 중이라면, HTTP 주소로의 API 호출이나 웹소켓 연결(ws://)은 브라우저 보안 정책에 의해 거부될 수 있습니다. 가능하면 HTTPS/WSS 주소를 사용하세요.',
+  },
+  {
+    title: '프록시 경로 매칭 규칙',
+    content:
+      "요청 URL의 시작 부분이 설정된 'Path'와 일치할 때만 타겟 주소로 치환됩니다. 예를 들어 '/api' 규칙은 '/api/user'에는 적용되지만 'api/user'(슬래시 없음)에는 적용되지 않을 수 있습니다.",
+  },
+];
+
+const { settings } = useSettings();
+const showSettings = ref(false);
 
 const store = useEditorStore();
 
 const activeTab = ref<'edit' | 'json' | 'code'>('edit');
 const copyLabel = ref('코드 복사');
 const showScriptDialog = ref(false);
-const canvasRef = ref<InstanceType<typeof Canvas> | null>(null);
 
 const generatedCode = computed(() => {
   return generateVueCode(store.tree, store.script);

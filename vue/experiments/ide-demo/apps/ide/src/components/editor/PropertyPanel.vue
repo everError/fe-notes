@@ -1,159 +1,157 @@
 <template>
   <div class="props-panel">
-    <div class="section-label">속성</div>
+    <div class="section-label">속성 편집</div>
 
-    <!-- 선택된 노드가 없을 때 -->
     <div v-if="!store.selectedNode" class="props-panel__empty">
-      캔버스에서 컴포넌트를<br />선택하면 속성을<br />편집할 수 있습니다
+      캔버스에서 컴포넌트를<br />선택하면 속성을<br />편집할 수 있습니다.
     </div>
 
-    <!-- 속성 편집 -->
     <template v-else>
-      <!-- 컴포넌트 타입 표시 -->
       <div class="props-panel__header">
         <span class="props-panel__type">{{ store.selectedNode.type }}</span>
         <span class="props-panel__id">#{{ store.selectedNode.id }}</span>
       </div>
 
-      <!-- Props 섹션 -->
       <div class="props-panel__scroll">
-        <template v-for="(fieldDef, key) in meta?.props" :key="key">
+        <div class="props-panel__section-divider">
+          <span class="props-panel__section-title">PROPERTIES</span>
+        </div>
+
+        <template v-for="(fieldDef, key) in meta?.props || {}" :key="key">
           <div class="props-panel__field">
             <div class="props-panel__field-header">
               <label class="props-panel__field-label">{{
                 fieldDef.label
               }}</label>
-              <span
-                v-if="fieldDef.description"
-                class="props-panel__field-info"
-                :title="fieldDef.description"
-              >
-                ⓘ
-              </span>
+              <div class="props-panel__field-actions">
+                <span
+                  v-if="fieldDef.description"
+                  class="props-panel__field-info"
+                  :title="fieldDef.description"
+                  >ⓘ</span
+                >
+
+                <button
+                  v-if="fieldDef.type !== 'binding'"
+                  :class="[
+                    'props-panel__bind-toggle',
+                    {
+                      'props-panel__bind-toggle--active': isBindMode(
+                        String(key),
+                      ),
+                    },
+                  ]"
+                  @click="toggleBindMode(String(key))"
+                >
+                  { }
+                </button>
+              </div>
             </div>
 
-            <!-- Boolean -->
             <div
-              v-if="fieldDef.type === 'boolean'"
-              class="props-panel__field-bool"
+              v-if="fieldDef.type === 'binding' || isBindMode(String(key))"
+              class="props-panel__binding-container"
             >
-              <input
-                type="checkbox"
-                :checked="!!store.selectedNode!.props[key]"
-                class="props-panel__checkbox"
-                @change="
-                  onPropChange(
-                    key as string,
-                    ($event.target as HTMLInputElement).checked,
-                  )
-                "
-              />
-              <span class="props-panel__field-bool-label">
-                {{ store.selectedNode!.props[key] ? 'true' : 'false' }}
-              </span>
-            </div>
+              <div class="props-panel__binding-row">
+                <input
+                  type="text"
+                  :value="
+                    bindingDrafts[String(key)] ??
+                    store.selectedNode!.props[key] ??
+                    ''
+                  "
+                  class="props-panel__input props-panel__input--binding"
+                  placeholder="변수명 또는 표현식"
+                  @input="onBindingInput(String(key), $event)"
+                  @focus="showBindingSuggestions = String(key)"
+                  @blur="hideSuggestions"
+                  @keydown.enter="confirmBinding(String(key))"
+                />
+                <button
+                  class="props-panel__binding-confirm"
+                  :class="{
+                    'props-panel__binding-confirm--active':
+                      bindingDrafts[String(key)] !== undefined,
+                  }"
+                  @click="confirmBinding(String(key))"
+                >
+                  ✓
+                </button>
+              </div>
 
-            <!-- Select -->
-            <select
-              v-else-if="fieldDef.type === 'select'"
-              :value="store.selectedNode!.props[key] ?? ''"
-              class="props-panel__select"
-              @change="
-                onPropChange(
-                  key as string,
-                  ($event.target as HTMLSelectElement).value,
-                )
-              "
-            >
-              <option v-for="opt in fieldDef.options" :key="opt" :value="opt">
-                {{ opt || '(기본)' }}
-              </option>
-            </select>
-
-            <!-- Binding (스크립트 변수/표현식 연결) -->
-            <div
-              v-else-if="fieldDef.type === 'binding'"
-              class="props-panel__binding"
-            >
-              <input
-                type="text"
-                :value="store.selectedNode!.props[key] ?? ''"
-                class="props-panel__input props-panel__input--binding"
-                :placeholder="fieldDef.description || '변수명 또는 표현식'"
-                @input="
-                  onPropChange(
-                    key as string,
-                    ($event.target as HTMLInputElement).value,
-                  )
-                "
-                @focus="showBindingSuggestions = key as string"
-                @blur="hideSuggestions"
-              />
-              <!-- 자동완성 드롭다운 -->
               <div
-                v-if="showBindingSuggestions === key"
+                v-if="showBindingSuggestions === String(key)"
                 class="props-panel__suggestions"
               >
                 <div
-                  v-for="s in getSuggestions(key as string)"
+                  v-for="s in getSuggestions(String(key))"
                   :key="s.value"
                   class="props-panel__suggestion"
-                  @mousedown.prevent="
-                    onSelectSuggestion(key as string, s.value)
-                  "
+                  @mousedown.prevent="onSelectSuggestion(String(key), s.value)"
                 >
                   <span class="props-panel__suggestion-name">{{
                     s.value
                   }}</span>
                   <span class="props-panel__suggestion-type">{{ s.type }}</span>
                 </div>
-                <div
-                  v-if="getSuggestions(key as string).length === 0"
-                  class="props-panel__suggestion-empty"
-                >
-                  스크립트를 먼저 적용하세요
-                </div>
               </div>
             </div>
 
-            <!-- Number -->
-            <input
-              v-else-if="fieldDef.type === 'number'"
-              type="number"
-              :value="store.selectedNode!.props[key] ?? ''"
-              class="props-panel__input"
-              :placeholder="fieldDef.description"
-              @input="
-                onPropChange(
-                  key as string,
-                  ($event.target as HTMLInputElement).value,
-                )
-              "
-            />
+            <template v-else>
+              <div
+                v-if="fieldDef.type === 'boolean'"
+                class="props-panel__field-bool"
+              >
+                <input
+                  type="checkbox"
+                  :checked="!!store.selectedNode!.props[key]"
+                  class="props-panel__checkbox"
+                  @change="
+                    onPropChange(String(key), ($event.target as any).checked)
+                  "
+                />
+                <span class="props-panel__field-bool-label">
+                  {{ store.selectedNode!.props[key] ? 'true' : 'false' }}
+                </span>
+              </div>
 
-            <!-- Text (default) -->
-            <input
-              v-else
-              type="text"
-              :value="store.selectedNode!.props[key] ?? ''"
-              class="props-panel__input"
-              :placeholder="fieldDef.description"
-              @input="
-                onPropChange(
-                  key as string,
-                  ($event.target as HTMLInputElement).value,
-                )
-              "
-            />
+              <select
+                v-else-if="fieldDef.type === 'select'"
+                :value="store.selectedNode!.props[key] ?? ''"
+                class="props-panel__select"
+                @change="
+                  onPropChange(String(key), ($event.target as any).value)
+                "
+              >
+                <option v-for="opt in fieldDef.options" :key="opt" :value="opt">
+                  {{ opt || '(기본)' }}
+                </option>
+              </select>
+
+              <input
+                v-else-if="fieldDef.type === 'number'"
+                type="number"
+                :value="store.selectedNode!.props[key] ?? ''"
+                class="props-panel__input"
+                @input="onPropChange(String(key), ($event.target as any).value)"
+              />
+
+              <input
+                v-else
+                type="text"
+                :value="store.selectedNode!.props[key] ?? ''"
+                class="props-panel__input"
+                @input="onPropChange(String(key), ($event.target as any).value)"
+              />
+            </template>
           </div>
         </template>
 
-        <!-- Events 섹션 -->
-        <template v-if="meta?.events.length">
+        <template v-if="meta?.events && meta.events.length > 0">
           <div class="props-panel__section-divider">
             <span
               class="props-panel__section-title props-panel__section-title--event"
-              >이벤트</span
+              >EVENTS</span
             >
           </div>
 
@@ -165,9 +163,8 @@
             <div class="props-panel__field-header">
               <label
                 class="props-panel__field-label props-panel__field-label--event"
+                >@{{ ev.name }}</label
               >
-                @{{ ev.name }}
-              </label>
               <span
                 v-if="ev.description"
                 class="props-panel__field-info"
@@ -178,14 +175,9 @@
             <select
               :value="store.selectedNode!.events[ev.name] ?? ''"
               class="props-panel__select props-panel__select--event"
-              @change="
-                onEventChange(
-                  ev.name,
-                  ($event.target as HTMLSelectElement).value,
-                )
-              "
+              @change="onEventChange(ev.name, ($event.target as any).value)"
             >
-              <option value="">(바인딩 없음)</option>
+              <option value="">(연결 없음)</option>
               <option v-for="fn in functions" :key="fn.name" :value="fn.name">
                 {{ fn.name }}(){{ fn.isAsync ? ' async' : '' }}
               </option>
@@ -193,7 +185,6 @@
           </div>
         </template>
 
-        <!-- 삭제 버튼 -->
         <div class="props-panel__delete-area">
           <button
             class="props-panel__delete-btn"
@@ -208,71 +199,120 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, toRef } from 'vue';
+import { computed, ref, toRef, watch } from 'vue';
 import { componentRegistry } from '@ide-demo/editor';
 import { useEditorStore } from '@/composables/useEditorStore';
 import { useScriptParser } from '@/composables/useScriptParser';
 
 const store = useEditorStore();
-const { variables, functions, getBindableVariables } = useScriptParser(
-  toRef(store, 'script'),
-);
+const { functions } = useScriptParser(toRef(store, 'script'));
 
+// 컴포넌트 메타 정보 계산
 const meta = computed(() => {
   if (!store.selectedNode) return null;
   return componentRegistry[store.selectedNode.type];
 });
 
+// 상태 관리
 const showBindingSuggestions = ref<string | null>(null);
+const bindingDrafts = ref<Record<string, string>>({});
+const bindModes = ref<Record<string, boolean>>({});
 
+// 바인딩 모드 여부 확인
+const isBindMode = (key: string) => bindModes.value[key] === true;
+
+// 바인딩 모드 토글 및 스토어 동기화
+function toggleBindMode(key: string) {
+  bindModes.value[key] = !bindModes.value[key];
+  if (store.selectedId) {
+    store.updateNodeBindMode(store.selectedId, key, bindModes.value[key]);
+  }
+  if (!bindModes.value[key]) {
+    delete bindingDrafts.value[key];
+  }
+}
+
+// 노드 변경 시 로컬 상태 초기화 및 로드
+watch(
+  () => store.selectedId,
+  () => {
+    bindingDrafts.value = {};
+    bindModes.value = store.selectedNode?.bindModes
+      ? { ...store.selectedNode.bindModes }
+      : {};
+  },
+  { immediate: true },
+);
+
+// 제안창 숨기기 (클릭 이벤트 처리를 위한 지연)
 function hideSuggestions() {
-  // blur 시 약간의 딜레이 (mousedown이 먼저 처리되도록)
   setTimeout(() => {
     showBindingSuggestions.value = null;
   }, 150);
 }
 
-function getSuggestions(propKey: string): { value: string; type: string }[] {
-  const suggestions: { value: string; type: string }[] = [];
+// 일반 속성 변경 핸들러
+function onPropChange(key: string, value: any) {
+  if (!store.selectedId || !meta.value) return;
 
-  // store.scriptStatus에서 바인딩 이름 가져오기
-  const bindingNames = store.scriptStatus?.bindingNames ?? [];
+  const fieldDef = meta.value.props[key];
+  let finalValue = value;
 
-  for (const name of bindingNames) {
-    // 변수 자체
-    suggestions.push({ value: name, type: 'var' });
-    // .value (ref인 경우 — NodeWrapper에서 unref하므로 안 붙여도 되지만 옵션으로)
-    // .data 같은 하위 속성 접근용
-    suggestions.push({ value: `${name}.data`, type: 'nested' });
-    suggestions.push({ value: `${name}.data.value`, type: 'nested' });
+  if (fieldDef?.type === 'number') {
+    const num = Number(value);
+    finalValue = isNaN(num) ? value : num;
+  } else if (fieldDef?.type === 'boolean') {
+    finalValue = !!value;
   }
 
-  // 현재 입력값으로 필터
-  const current = store.selectedNode?.props[propKey] ?? '';
-  if (current) {
+  store.updateNodeProp(store.selectedId, key, finalValue);
+}
+
+// 바인딩 입력 핸들러
+function onBindingInput(key: string, event: Event) {
+  bindingDrafts.value[key] = (event.target as HTMLInputElement).value;
+}
+
+// 바인딩 확정
+function confirmBinding(key: string) {
+  if (!store.selectedId) return;
+  const val = bindingDrafts.value[key];
+  if (val !== undefined) {
+    store.updateNodeProp(store.selectedId, key, val);
+    delete bindingDrafts.value[key];
+  }
+  showBindingSuggestions.value = null;
+}
+
+// 제안 목록에서 선택
+function onSelectSuggestion(key: string, value: string) {
+  if (!store.selectedId) return;
+  store.updateNodeProp(store.selectedId, key, value);
+  delete bindingDrafts.value[key];
+  showBindingSuggestions.value = null;
+}
+
+// 자동완성 목록 생성
+function getSuggestions(propKey: string) {
+  const suggestions: { value: string; type: string }[] = [];
+  const names = store.scriptStatus?.bindingNames ?? [];
+
+  for (const name of names) {
+    suggestions.push({ value: name, type: 'variable' });
+    suggestions.push({ value: `${name}.value`, type: 'ref' });
+  }
+
+  const current =
+    bindingDrafts.value[propKey] ?? store.selectedNode?.props[propKey] ?? '';
+  if (current && typeof current === 'string') {
     return suggestions.filter((s) =>
       s.value.toLowerCase().includes(current.toLowerCase()),
     );
   }
-
   return suggestions;
 }
 
-function onSelectSuggestion(propKey: string, value: string) {
-  if (!store.selectedId) return;
-  store.updateNodeProp(store.selectedId, propKey, value);
-  showBindingSuggestions.value = null;
-}
-
-function getBindableVars(filterTypes?: string[]) {
-  return getBindableVariables(filterTypes);
-}
-
-function onPropChange(key: string, value: any) {
-  if (!store.selectedId) return;
-  store.updateNodeProp(store.selectedId, key, value);
-}
-
+// 이벤트 핸들러 변경
 function onEventChange(eventName: string, handlerName: string) {
   if (!store.selectedId) return;
   store.updateNodeEvent(store.selectedId, eventName, handlerName);
@@ -286,28 +326,40 @@ function onEventChange(eventName: string, handlerName: string) {
   display: flex;
   flex-direction: column;
 
+  .section-label {
+    padding: 10px 14px;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--ide-text-dimmer);
+    background: var(--ide-bg-alt);
+    border-bottom: 1px solid var(--ide-border);
+    text-transform: uppercase;
+  }
+
   &__empty {
-    padding: 24px 16px;
+    padding: 40px 20px;
     color: var(--ide-text-dimmer);
     text-align: center;
     font-size: 12px;
-    line-height: 1.8;
+    line-height: 1.6;
   }
 
   &__header {
-    padding: 8px 14px 12px;
+    padding: 12px 14px;
     border-bottom: 1px solid var(--ide-border);
+    display: flex;
+    align-items: baseline;
   }
 
   &__type {
-    font-size: 15px;
+    font-size: 14px;
     font-weight: 800;
-    color: var(--ide-primary-hover);
+    color: var(--ide-primary);
     font-family: var(--ide-font-mono);
   }
 
   &__id {
-    font-size: 11px;
+    font-size: 10px;
     color: var(--ide-text-dimmer);
     margin-left: 8px;
   }
@@ -315,17 +367,31 @@ function onEventChange(eventName: string, handlerName: string) {
   &__scroll {
     flex: 1;
     overflow-y: auto;
-    padding: 8px 0;
+  }
+
+  &__section-divider {
+    padding: 16px 14px 6px;
+  }
+
+  &__section-title {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--ide-text-dimmer);
+    letter-spacing: 0.05em;
+
+    &--event {
+      color: var(--ide-accent-yellow);
+    }
   }
 
   &__field {
-    padding: 5px 14px;
+    padding: 6px 14px;
   }
 
   &__field-header {
     display: flex;
-    align-items: center;
     justify-content: space-between;
+    align-items: center;
     margin-bottom: 4px;
   }
 
@@ -335,9 +401,15 @@ function onEventChange(eventName: string, handlerName: string) {
     color: var(--ide-text-muted);
 
     &--event {
-      color: var(--ide-accent-yellow);
       font-family: var(--ide-font-mono);
+      color: var(--ide-accent-yellow);
     }
+  }
+
+  &__field-actions {
+    display: flex;
+    gap: 6px;
+    align-items: center;
   }
 
   &__field-info {
@@ -346,47 +418,28 @@ function onEventChange(eventName: string, handlerName: string) {
     cursor: help;
   }
 
-  &__field-bool {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  &__field-bool-label {
-    font-size: 11px;
-    color: var(--ide-text-dim);
-    font-family: var(--ide-font-mono);
-  }
-
-  &__checkbox {
-    width: 16px;
-    height: 16px;
-    accent-color: var(--ide-primary);
+  &__bind-toggle {
+    background: var(--ide-bg-alt);
+    border: 1px solid var(--ide-border);
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-size: 10px;
     cursor: pointer;
-  }
+    color: var(--ide-text-dimmer);
+    transition: all 0.1s;
 
-  &__input {
-    width: 100%;
-    padding: 6px 10px;
-    background: var(--ide-bg);
-    border: 1.5px solid var(--ide-border);
-    border-radius: 5px;
-    color: var(--ide-text);
-    font-size: 12px;
-    font-family: var(--ide-font-mono);
-    outline: none;
-    transition: border-color 0.12s;
-
-    &:focus {
+    &:hover {
       border-color: var(--ide-primary);
+      color: var(--ide-primary);
     }
-
-    &::placeholder {
-      color: var(--ide-text-dimmer);
-      font-family: var(--ide-font-sans);
+    &--active {
+      color: var(--ide-primary);
+      border-color: var(--ide-primary);
+      background: rgba(99, 102, 241, 0.1);
     }
   }
 
+  &__input,
   &__select {
     width: 100%;
     padding: 6px 10px;
@@ -397,115 +450,114 @@ function onEventChange(eventName: string, handlerName: string) {
     font-size: 12px;
     font-family: inherit;
     outline: none;
-    cursor: pointer;
-    transition: border-color 0.12s;
 
     &:focus {
       border-color: var(--ide-primary);
     }
+  }
 
-    &--binding {
-      border-color: rgba(99, 102, 241, 0.4);
-    }
+  &__input--binding {
+    border-color: rgba(99, 102, 241, 0.4);
+    font-family: var(--ide-font-mono);
+  }
 
-    &--event {
-      border-color: rgba(245, 158, 11, 0.3);
+  &__binding-container {
+    position: relative;
+  }
+
+  &__binding-row {
+    display: flex;
+    gap: 4px;
+  }
+
+  &__binding-confirm {
+    padding: 0 8px;
+    background: var(--ide-surface-alt);
+    border: 1.5px solid var(--ide-border);
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--ide-text-dimmer);
+
+    &--active {
+      color: var(--ide-accent-green);
+      border-color: var(--ide-accent-green);
+      background: rgba(34, 197, 94, 0.1);
     }
   }
 
-  &__section-divider {
-    padding: 12px 14px 4px;
-    border-top: 1px solid var(--ide-border);
-    margin-top: 8px;
+  &__suggestions {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: var(--ide-bg);
+    border: 1px solid var(--ide-border-hover);
+    border-radius: 5px;
+    z-index: 1000;
+    margin-top: 4px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    max-height: 160px;
+    overflow-y: auto;
   }
 
-  &__section-title {
+  &__suggestion {
+    padding: 6px 10px;
+    display: flex;
+    justify-content: space-between;
+    cursor: pointer;
+    font-size: 12px;
+    &:hover {
+      background: var(--ide-primary-dim);
+    }
+  }
+
+  &__suggestion-name {
+    font-family: var(--ide-font-mono);
+  }
+  &__suggestion-type {
     font-size: 10px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
+    color: var(--ide-text-dimmer);
+  }
 
-    &--event {
-      color: var(--ide-accent-yellow);
-    }
+  &__field-bool {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  &__checkbox {
+    width: 15px;
+    height: 15px;
+    accent-color: var(--ide-primary);
+    cursor: pointer;
+  }
+
+  &__field-bool-label {
+    font-size: 11px;
+    color: var(--ide-text-dimmer);
+    font-family: var(--ide-font-mono);
   }
 
   &__delete-area {
-    padding: 16px 14px;
-    margin-top: 8px;
+    padding: 24px 14px;
   }
 
   &__delete-btn {
     width: 100%;
-    padding: 7px 14px;
+    padding: 8px;
     background: rgba(239, 68, 68, 0.1);
     color: var(--ide-accent-red);
-    border: 1px solid rgba(239, 68, 68, 0.3);
-    border-radius: 5px;
-    font-weight: 600;
+    border: 1px solid rgba(239, 68, 68, 0.2);
+    border-radius: 6px;
     font-size: 12px;
+    font-weight: 600;
     cursor: pointer;
-    font-family: inherit;
-    transition: all 0.12s;
+    transition: all 0.1s;
 
     &:hover {
       background: rgba(239, 68, 68, 0.2);
       border-color: var(--ide-accent-red);
-    }
-
-    &__binding {
-      position: relative;
-    }
-
-    &__input--binding {
-      border-color: rgba(99, 102, 241, 0.4);
-      font-family: var(--ide-font-mono);
-    }
-
-    &__suggestions {
-      position: absolute;
-      top: 100%;
-      left: 0;
-      right: 0;
-      background: var(--ide-bg);
-      border: 1px solid var(--ide-border-hover);
-      border-radius: 5px;
-      margin-top: 2px;
-      max-height: 180px;
-      overflow-y: auto;
-      z-index: 100;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-    }
-
-    &__suggestion {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 5px 10px;
-      cursor: pointer;
-      font-size: 12px;
-      transition: background 0.08s;
-
-      &:hover {
-        background: var(--ide-primary-dim);
-      }
-    }
-
-    &__suggestion-name {
-      font-family: var(--ide-font-mono);
-      color: var(--ide-text);
-    }
-
-    &__suggestion-type {
-      font-size: 10px;
-      color: var(--ide-text-dimmer);
-    }
-
-    &__suggestion-empty {
-      padding: 8px 10px;
-      font-size: 11px;
-      color: var(--ide-text-dimmer);
-      text-align: center;
     }
   }
 }

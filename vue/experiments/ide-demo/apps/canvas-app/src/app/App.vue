@@ -1,7 +1,10 @@
 <template>
   <div
     id="canvas-root"
-    :class="['h-full w-full flex flex-col p-2', { 'edit-mode': editMode }]"
+    :class="[
+      'h-full w-full flex flex-col p-2 bg-slate-50',
+      { 'edit-mode': editMode },
+    ]"
   >
     <!-- 디버그: 트리 내용 확인 -->
     <!-- <div
@@ -27,7 +30,6 @@
         | slots={{ Object.keys(node.slots || {}).join(',') }}
       </div>
     </div> -->
-
     <div class="flex flex-col flex-1">
       <NodeWrapper
         v-for="node in tree"

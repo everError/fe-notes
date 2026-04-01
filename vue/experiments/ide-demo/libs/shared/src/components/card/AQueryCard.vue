@@ -9,27 +9,22 @@
         :class="gridClass"
       >
         <slot />
-        <div
-          v-if="showSearchButton"
-          class="flex items-end justify-end"
-          :class="searchButtonColClass"
-        >
-          <AButton
-            :label="searchLabel"
-            :icon="searchIcon"
-            size="small"
-            @click="emit('search')"
-          />
-        </div>
+        <AButton
+          :label="searchLabel"
+          :icon="searchIcon"
+          style="place-self: end"
+          size="small"
+          @click="emit('search')"
+        />
       </div>
     </template>
   </Card>
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
-import { Card } from "primevue";
-import AButton from "../button/AButton.vue";
+import { computed } from 'vue';
+import { Card } from 'primevue';
+import AButton from '../button/AButton.vue';
 
 export interface AQueryCardProps {
   /** 그리드 컬럼 수 (PC 기준) */
@@ -45,8 +40,8 @@ export interface AQueryCardProps {
 const props = withDefaults(defineProps<AQueryCardProps>(), {
   cols: 4,
   showSearchButton: true,
-  searchLabel: "검색",
-  searchIcon: "pi pi-search",
+  searchLabel: '검색',
+  searchIcon: 'pi pi-search',
 });
 
 const emit = defineEmits<{
@@ -60,12 +55,12 @@ const emit = defineEmits<{
 const gridClass = computed(() => {
   // cols 값에 따라 반응형 그리드 클래스 매핑
   const colMap: Record<number, string> = {
-    1: "grid grid-cols-1",
-    2: "grid grid-cols-1 sm:grid-cols-2",
-    3: "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3",
-    4: "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4",
-    5: "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5",
-    6: "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6",
+    1: 'grid grid-cols-1',
+    2: 'grid grid-cols-1 sm:grid-cols-2',
+    3: 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3',
+    4: 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4',
+    5: 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5',
+    6: 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6',
   };
   return colMap[props.cols] ?? colMap[4];
 });
@@ -73,13 +68,13 @@ const gridClass = computed(() => {
 /** 검색 버튼을 마지막 열에 배치 */
 const searchButtonColClass = computed(() => {
   const map: Record<number, string> = {
-    1: "",
-    2: "sm:col-start-2",
-    3: "md:col-start-3",
-    4: "lg:col-start-4",
-    5: "lg:col-start-5",
-    6: "xl:col-start-6",
+    1: '',
+    2: 'sm:col-start-2',
+    3: 'md:col-start-3',
+    4: 'lg:col-start-4',
+    5: 'lg:col-start-5',
+    6: 'xl:col-start-6',
   };
-  return map[props.cols] ?? "";
+  return map[props.cols] ?? '';
 });
 </script>

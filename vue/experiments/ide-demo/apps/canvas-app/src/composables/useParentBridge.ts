@@ -1,11 +1,13 @@
 import { ref, nextTick, onMounted, onBeforeUnmount, watch } from 'vue';
 import type { EditorNode } from '@ide-demo/editor';
+import { useSettings } from '@ide-demo/shared';
 
 export function useParentBridge() {
   const tree = ref<EditorNode[]>([]);
   const selectedId = ref<string | null>(null);
   const script = ref('');
   const editMode = ref(true);
+  const { settings } = useSettings();
 
   function sendToParent(type: string, payload: Record<string, any> = {}) {
     window.parent.postMessage({ source: 'canvas-app', type, ...payload }, '*');
@@ -30,6 +32,12 @@ export function useParentBridge() {
     if (data.source !== 'ide') return;
 
     switch (data.type) {
+      case 'update-settings':
+        // 부모에게 받은 설정으로 자식의 설정을 동기화
+        if (data.settings) {
+          settings.value = data.settings;
+        }
+        break;
       case 'render':
         tree.value = data.tree;
         nextTick(() => {

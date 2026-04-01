@@ -7,6 +7,7 @@ import type {
 } from '../types/ws';
 import type { AuthInstance } from '../types/auth';
 import { WS_KEY } from '../plugins/keys';
+import { useSettings } from './editor/useSettings';
 
 /**
  * UUID를 생성합니다.
@@ -268,7 +269,26 @@ export function createWebSocket(
    * @param path - WebSocket 경로
    * @param token - 쿼리 파라미터로 전달할 access token
    */
+  const { settings } = useSettings();
+
   const buildWsUrl = (path: string, token: string): string => {
+    // 1. 설정된 프록시 룰에서 해당 경로의 타겟이 있는지 확인
+    const matchedRule = settings.value.proxyRules.find((rule) =>
+      path.startsWith(rule.path),
+    );
+
+    if (matchedRule) {
+      // target이 'http://localhost:5010/' 이라면 'ws://localhost:5010/ws' 형태로 변환
+      const wsTarget = matchedRule.target
+        .replace(/^http:/, 'ws:')
+        .replace(/^https:/, 'wss:');
+
+      // 마지막 슬래시 처리 후 연결
+      const base = wsTarget.endsWith('/') ? wsTarget.slice(0, -1) : wsTarget;
+      return `${base}${path}?token=${token}`;
+    }
+
+    // 2. 룰이 없으면 기본 로직(현재 호스트 기반) 사용
     if (path.startsWith('ws://') || path.startsWith('wss://')) {
       return `${path}?token=${token}`;
     }

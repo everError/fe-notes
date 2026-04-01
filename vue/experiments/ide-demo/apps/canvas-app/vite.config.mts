@@ -28,4 +28,8 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    outDir: '../../dist/apps/canvas-app', // 루트의 dist 폴더로 모으기
+    emptyOutDir: true,
+  },
 });

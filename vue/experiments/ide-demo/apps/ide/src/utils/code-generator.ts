@@ -5,10 +5,21 @@ import { parseScriptCode } from '@/composables/useScriptParser';
 /**
  * 에디터 노드 트리를 .vue 파일 코드로 변환
  */
+import { useSettings } from '@ide-demo/shared';
+
 export function generateVueCode(tree: EditorNode[], script: string): string {
   const template = generateTemplate(tree, 2);
-  // return `<template>\n  <div>\n${template}\n  </div>\n</template>\n\n${script}\n`;
-  return `<template>\n${template}\n</template>\n\n${script}\n`;
+  let code = `<template>\n  <div>\n${template}\n  </div>\n</template>\n\n${script}\n`;
+
+  // 설정의 문자열 치환 적용
+  const { settings } = useSettings();
+  for (const rule of settings.value.codeReplacements) {
+    if (rule.from && rule.to) {
+      code = code.replaceAll(rule.from, rule.to);
+    }
+  }
+
+  return code;
 }
 
 /** 노드 배열 → template 코드 */
@@ -68,29 +79,29 @@ function generatePropsString(node: EditorNode): string {
   if (!meta) return '';
 
   for (const [key, value] of Object.entries(node.props)) {
-    if (key === 'rowIds' && typeof value === 'string' && value) {
-      const arr = value
-        .split(',')
-        .map((s) => `'${s.trim()}'`)
-        .join(', ');
-      parts.push(`:row-ids="[${arr}]"`);
-      continue;
-    }
-    if (key === 'cols' && value) {
-      parts.push(`:cols="${value}"`);
-      continue;
-    }
     if (value === undefined || value === null || value === '') continue;
 
     const propDef = meta.props[key];
+    const isBind =
+      node.bindModes?.[key] === true || propDef?.type === 'binding';
 
-    // class는 항상 정적 바인딩
+    // class는 항상 정적
     if (key === 'class' && value) {
       parts.push(`class="${value}"`);
       continue;
     }
 
-    // boolean: true면 속성만, false면 생략 (기본값이 false인 경우)
+    // 바인딩 모드
+    if (isBind) {
+      if (key === 'modelValue') {
+        parts.push(`v-model="${value}"`);
+      } else {
+        parts.push(`:${key}="${value}"`);
+      }
+      continue;
+    }
+
+    // boolean
     if (typeof value === 'boolean') {
       if (value) {
         parts.push(key);
@@ -100,17 +111,13 @@ function generatePropsString(node: EditorNode): string {
       continue;
     }
 
-    // binding 타입이면 v-bind
-    if (propDef?.type === 'binding') {
-      if (key === 'modelValue') {
-        parts.push(`v-model="${value}"`);
-      } else {
-        parts.push(`:${key}="${value}"`);
-      }
+    // 숫자
+    if (typeof value === 'number') {
+      parts.push(`:${key}="${value}"`);
       continue;
     }
 
-    // 일반 문자열
+    // 문자열
     parts.push(`${key}="${value}"`);
   }
 

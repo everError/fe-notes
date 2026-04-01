@@ -1,0 +1,13 @@
+# 로컬 의존성 제외 (가장 중요)
+node_modules
+**/node_modules
+
+# 빌드 결과물 제외
+dist
+.nx
+
+# 기타 불필요한 파일
+.git
+.vscode
+.editorconfig
+README.md

@@ -159,7 +159,15 @@ const onSave = async () => {
       ),
       parentId,
       parentSlot,
+      bindModes: {},
     };
+  }
+  function updateNodeBindMode(nodeId: string, key: string, isBind: boolean) {
+    const node = findNodeById(tree.value, nodeId);
+    if (node) {
+      if (!node.bindModes) node.bindModes = {};
+      node.bindModes[key] = isBind;
+    }
   }
 
   function addNodeToRoot(type: string, index?: number) {
@@ -338,13 +346,13 @@ const onSave = async () => {
   }
 
   function executeDrop(target: DropTarget) {
-    console.log('[Store] executeDrop', {
-      dragSource: dragItem.value?.source,
-      dragId: dragItem.value?.id,
-      targetParentId: target.parentId,
-      targetSlotName: target.slotName,
-      targetIndex: target.index,
-    });
+    // console.log('[Store] executeDrop', {
+    //   dragSource: dragItem.value?.source,
+    //   dragId: dragItem.value?.id,
+    //   targetParentId: target.parentId,
+    //   targetSlotName: target.slotName,
+    //   targetIndex: target.index,
+    // });
     if (!dragItem.value) return;
 
     const parentNode =
@@ -456,5 +464,6 @@ const onSave = async () => {
     cancelSlotDrop,
     toJSON,
     loadFromJSON,
+    updateNodeBindMode,
   };
 });
