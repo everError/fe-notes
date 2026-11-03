@@ -1,7 +1,14 @@
 import { fail } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import * as db from '#lib/server/db';
-import { daysInMonthOf, isValidMonth, monthKey, parseAmount, dateKey } from '#lib/format';
+import {
+	addMonths,
+	daysInMonthOf,
+	isValidMonth,
+	monthKey,
+	parseAmount,
+	dateKey
+} from '#lib/format';
 import {
 	DATE_RE,
 	readCategory,
@@ -44,6 +51,13 @@ export const actions: Actions = {
 		if (!Number.isFinite(amount) || amount <= 0)
 			return fail(400, { where: 'add', message: '금액을 입력해 주세요.' });
 		if (!category) return fail(400, { where: 'add', message: '분류를 골라 주세요.' });
+		if (kind === 'save' && goalId === null)
+			return fail(400, {
+				where: 'add',
+				message: db.listSavingsGoals().length
+					? '저축할 목표를 골라 주세요.'
+					: '먼저 관리 화면에서 저축 목표를 만들어 주세요.'
+			});
 
 		db.addEntry(date, kind, amount, category, memo, methodId, goalId);
 		return { where: 'add', ok: true };
@@ -68,6 +82,13 @@ export const actions: Actions = {
 		if (!Number.isFinite(amount) || amount <= 0)
 			return fail(400, { where: 'update', message: '금액을 입력해 주세요.' });
 		if (!category) return fail(400, { where: 'update', message: '분류를 골라 주세요.' });
+		if (kind === 'save' && goalId === null)
+			return fail(400, {
+				where: 'update',
+				message: db.listSavingsGoals().length
+					? '저축할 목표를 골라 주세요.'
+					: '먼저 관리 화면에서 저축 목표를 만들어 주세요.'
+			});
 
 		db.updateEntry(id, date, kind, amount, category, memo, methodId, goalId);
 		return { where: 'update', ok: true };
@@ -90,6 +111,21 @@ export const actions: Actions = {
 			return fail(400, { where: 'setStart', message: '금액을 확인해 주세요.' });
 		db.setStartAmount(month, amount);
 		return { where: 'setStart', ok: true };
+	},
+
+	/** 지난달 마감 잔액을 이번 달 시작금액으로 이어받는다 */
+	carryStart: async ({ request }) => {
+		const month = String((await request.formData()).get('month') ?? '');
+		if (!isValidMonth(month))
+			return fail(400, { where: 'carryStart', message: '잘못된 달이에요.' });
+		const prev = db.monthBalance(addMonths(month, -1));
+		if (prev === null)
+			return fail(400, {
+				where: 'carryStart',
+				message: '지난달 시작금액이 없어 이어받을 수 없어요.'
+			});
+		db.setStartAmount(month, Math.max(0, prev));
+		return { where: 'carryStart', ok: true };
 	},
 
 	/** 지정일이 지났지만 아직 기록하지 않은 고정지출을 한 번에 기록한다 */

@@ -17,27 +17,27 @@
 }
 
 @theme {
-	/* 차분한 회색 바탕 위에 흰 면, 잉크색 본문, 파랑 하나만 강조색으로 사용한다 */
-	--color-canvas: #f4f5f7;
-	--color-surface: #ffffff;
-	--color-surface-2: #f0f2f5;
-	--color-line: #e4e7ec;
-	--color-line-strong: #cfd4dc;
-	--color-ink: #12161c;
-	--color-mute: #5b6472;
-	--color-faint: #98a2b3;
-	--color-brand: #3454d1;
-	--color-brand-soft: #e9eeff;
-	--color-income: #0b8f66;
-	--color-income-soft: #e3f6ee;
-	--color-save: #7048e8;
-	--color-save-soft: #efeaff;
-	--color-danger: #d92d3a;
-	--color-danger-soft: #fdecee;
+	/* 따뜻한 크림 바탕 위에 아이보리 면, 짙은 갈색 본문, 테라코타 하나만 강조색으로 사용한다 */
+	--color-canvas: #f8f3ea;
+	--color-surface: #fffdf8;
+	--color-surface-2: #f3ebdd;
+	--color-line: #e9dfcc;
+	--color-line-strong: #d6c8af;
+	--color-ink: #2a2118;
+	--color-mute: #6d5f4e;
+	--color-faint: #a69883;
+	--color-brand: #c4531f;
+	--color-brand-soft: #fbe6d8;
+	--color-income: #2e7d4f;
+	--color-income-soft: #e2f1e5;
+	--color-save: #8a4f9e;
+	--color-save-soft: #f3e6f6;
+	--color-danger: #bf3326;
+	--color-danger-soft: #fbe5e1;
 	--font-sans:
 		'Pretendard Variable', 'Pretendard', -apple-system, 'Segoe UI', 'Malgun Gothic', sans-serif;
 	--font-num: 'Jost', 'Pretendard Variable', 'Segoe UI', sans-serif;
-	--shadow-card: 0 1px 2px rgb(16 24 40 / 0.04), 0 4px 16px rgb(16 24 40 / 0.04);
+	--shadow-card: 0 1px 2px rgb(74 52 24 / 0.05), 0 4px 16px rgb(74 52 24 / 0.05);
 }
 
 @layer base {
@@ -118,7 +118,8 @@
 	.chip {
 		@apply inline-flex items-center gap-1.5 rounded-full border border-line-strong bg-surface px-3 py-1.5 text-[12.5px] font-semibold text-mute transition hover:border-ink/40 hover:text-ink disabled:cursor-not-allowed disabled:opacity-40;
 	}
-	.chip[aria-pressed='true'] {
+	.chip[aria-pressed='true'],
+	.chip[aria-current='true'] {
 		@apply border-ink bg-ink text-white;
 	}
 	.pill {

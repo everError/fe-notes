@@ -15,7 +15,9 @@
 		| 'settings'
 		| 'wallet'
 		| 'target'
-		| 'repeat';
+		| 'repeat'
+		| 'search'
+		| 'list';
 
 	let { name, size = 16 }: { name: Icon; size?: number } = $props();
 
@@ -39,6 +41,8 @@
 		wallet:
 			'M4 6.5A1.5 1.5 0 0 1 5.5 5H15a1 1 0 0 1 1 1v1.5M4 6.5v7A1.5 1.5 0 0 0 5.5 15H15a1 1 0 0 0 1-1v-2M4 6.5h10.5a1.5 1.5 0 0 1 1.5 1.5v4M13 10.5h3v0',
 		target: 'M10 16a6 6 0 1 0 0-12 6 6 0 0 0 0 12zM10 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z',
+		search: 'M9 15a6 6 0 1 0 0-12 6 6 0 0 0 0 12zM13.5 13.5L17 17',
+		list: 'M7 5h10M7 10h10M7 15h10M3.5 5h.01M3.5 10h.01M3.5 15h.01',
 		repeat:
 			'M5 8V7a2 2 0 0 1 2-2h8M12.5 2.5L15 5l-2.5 2.5M15 12v1a2 2 0 0 1-2 2H5M7.5 17.5L5 15l2.5-2.5'
 	};

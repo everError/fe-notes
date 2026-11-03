@@ -16,6 +16,7 @@
 	const act = (name: string) => `?/${name}&m=${data.month}`;
 	const todayMonth = $derived(data.today.slice(0, 7));
 	const todayDay = $derived(Number(data.today.slice(8, 10)));
+	const budgetOf = (name: string) => data.budgets.find((b) => b.name === name)?.budget ?? null;
 	const spendCats = $derived(data.categories.filter((c) => c.kind === 'spend'));
 	const shownCats = $derived(data.categories.filter((c) => c.kind === catKind));
 
@@ -215,7 +216,7 @@
 		</ul>
 	</section>
 
-	<div class="grid items-start gap-4 lg:grid-cols-2">
+	<div class="grid items-stretch gap-4 lg:grid-cols-2">
 		<!-- ── 분류 ────────────────────────────── -->
 		<section class="card p-4 sm:p-5" aria-label="분류">
 			<header class="flex flex-wrap items-center justify-between gap-2">
@@ -258,6 +259,19 @@
 				>
 					<input type="hidden" name="kind" value={catKind} />
 					<input name="name" placeholder="분류 이름" class="input" aria-label="이름" />
+					{#if catKind === 'spend'}
+						<label class="block">
+							<span class="eyebrow mb-1 block">월 예산 (선택)</span>
+							<input
+								name="budget"
+								value=""
+								oninput={money}
+								inputmode="numeric"
+								placeholder="예: 400,000 · 비우면 예산 없음"
+								class="input font-num tabular-nums"
+							/>
+						</label>
+					{/if}
 					{@render colorPicker(COLOR_CHOICES[5])}
 					{#if msg('catAdd')}<p class="msg-error">{msg('catAdd')}</p>{/if}
 					<div class="flex justify-end gap-1.5">
@@ -280,6 +294,19 @@
 								<input type="hidden" name="id" value={c.id} />
 								<input type="hidden" name="kind" value={c.kind} />
 								<input name="name" value={c.name} class="input" aria-label="이름" />
+								{#if catKind === 'spend'}
+									<label class="block">
+										<span class="eyebrow mb-1 block">월 예산 (선택)</span>
+										<input
+											name="budget"
+											value={budgetOf(c.name) === null ? '' : num(budgetOf(c.name)!)}
+											oninput={money}
+											inputmode="numeric"
+											placeholder="예: 400,000 · 비우면 예산 없음"
+											class="input font-num tabular-nums"
+										/>
+									</label>
+								{/if}
 								{@render colorPicker(c.color)}
 								{#if msg('catUpdate')}<p class="msg-error">{msg('catUpdate')}</p>{/if}
 								<div class="flex justify-end gap-1.5">
@@ -293,6 +320,11 @@
 						<li class="flex items-center gap-3 py-2.5">
 							<span class="h-3 w-3 shrink-0 rounded-full" style="background: {c.color}"></span>
 							<span class="min-w-0 flex-1 truncate text-[14px] font-semibold">{c.name}</span>
+							{#if c.kind === 'spend' && budgetOf(c.name) !== null}
+								<span class="pill tnum bg-brand-soft text-brand">
+									예산 {num(budgetOf(c.name)!)}원
+								</span>
+							{/if}
 							{#if c.builtin}<span class="pill bg-surface-2 text-mute">기본</span>{/if}
 							<button
 								class="iconbtn"
@@ -317,9 +349,9 @@
 			</ul>
 		</section>
 
-		<div class="space-y-4">
+		<div class="flex flex-col gap-4">
 			<!-- ── 결제수단 ──────────────────────── -->
-			<section class="card p-4 sm:p-5" aria-label="결제수단">
+			<section class="card flex-1 p-4 sm:p-5" aria-label="결제수단">
 				<header class="flex items-center justify-between gap-2">
 					<h2 class="card-title">결제수단</h2>
 					<button class="btn-ghost" onclick={() => (open = open === 'method' ? null : 'method')}>
@@ -401,13 +433,18 @@
 			</section>
 
 			<!-- ── 저축 목표 ─────────────────────── -->
-			<section class="card p-4 sm:p-5" aria-label="저축 목표">
+			<section class="card flex-1 p-4 sm:p-5" aria-label="저축 목표">
 				<header class="flex items-center justify-between gap-2">
 					<h2 class="card-title">저축 목표</h2>
 					<button class="btn-ghost" onclick={() => (open = open === 'goal' ? null : 'goal')}>
 						<Icon name="plus" size={13} /> 추가
 					</button>
 				</header>
+
+				<p class="mt-2 text-[12px] leading-relaxed text-mute">
+					저축을 기록할 때 아래 목표 중 하나를 골라요. 이번 달 모아야 할 금액은 목표별 남은 금액을
+					남은 달 수로 나눠 자동으로 계산해요.
+				</p>
 
 				{#snippet goalFields(v: { name: string; amount: string; endMonth: string })}
 					<div class="grid grid-cols-2 gap-2">

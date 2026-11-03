@@ -1,16 +1,26 @@
 import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
-import { dateKey, daysInMonthOf, monthKey, monthLabel, pad2 } from '#lib/format';
+import {
+	addMonths,
+	dateKey,
+	daysInMonthOf,
+	monthKey,
+	monthLabel,
+	monthsBetween,
+	pad2
+} from '#lib/format';
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, INCOME_COLOR } from '#lib/categories';
 import type {
 	Category,
+	BudgetInfo,
 	CategorySlice,
 	DayCell,
 	Entry,
 	FixedDef,
 	Kind,
 	MethodSlice,
+	MonthCompare,
 	MonthData,
 	PaymentMethod,
 	RoutePoint,
@@ -91,6 +101,10 @@ function migrate(db: DatabaseSync): void {
 			position INTEGER NOT NULL DEFAULT 0,
 			UNIQUE (kind, name)
 		);
+		CREATE TABLE IF NOT EXISTS category_budgets (
+			category TEXT PRIMARY KEY,
+			amount INTEGER NOT NULL CHECK (amount > 0)
+		);
 		CREATE TABLE IF NOT EXISTS savings_goals (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			name TEXT NOT NULL,
@@ -98,10 +112,6 @@ function migrate(db: DatabaseSync): void {
 			end_month TEXT NOT NULL,
 			position INTEGER NOT NULL DEFAULT 0,
 			UNIQUE (name)
-		);
-		CREATE TABLE IF NOT EXISTS month_save_goal (
-			month TEXT PRIMARY KEY,
-			amount INTEGER NOT NULL
 		);
 	`);
 	// entries에 'save' kind와 goal_id·method_id가 없으면 테이블 재빌드
@@ -173,10 +183,6 @@ export function ensureBuiltinData(): void {
 		insGoal.run('비상금', 5_000_000, `${endY}-06`, 0);
 	if (!db.prepare('SELECT 1 FROM savings_goals WHERE name=?').get('여행 기금'))
 		insGoal.run('여행 기금', 1_500_000, `${endY}-03`, 1);
-	// 현재 달 저축 목표가 없으면 기본값을 둔다(신규 시드와 기존 DB 모두에, 멱등하게)
-	const thisMonth = monthKey(new Date());
-	if (!db.prepare('SELECT 1 FROM month_save_goal WHERE month=?').get(thisMonth))
-		db.prepare('INSERT INTO month_save_goal (month, amount) VALUES (?, ?)').run(thisMonth, 800_000);
 }
 
 /* ------------------------------------------------------------------ */
@@ -228,9 +234,12 @@ function seed(): void {
 		'DELETE FROM fixed_log; DELETE FROM entries; DELETE FROM fixed_defs; DELETE FROM month_start;'
 	);
 	db.exec(
-		'DELETE FROM categories; DELETE FROM payment_methods; DELETE FROM savings_goals; DELETE FROM month_save_goal;'
+		'DELETE FROM categories; DELETE FROM payment_methods; DELETE FROM savings_goals; DELETE FROM category_budgets;'
 	);
 	ensureBuiltinData();
+	// 예시 예산 — 식비·카페
+	setBudget('식비', 400_000);
+	setBudget('카페', 80_000);
 
 	const today = new Date();
 	const nowMonth = monthKey(today);
@@ -307,12 +316,6 @@ function seed(): void {
 	for (const { month, lastDay } of months) {
 		if (lastDay < 1) continue;
 		const [y, m] = month.split('-').map(Number);
-
-		// 월 저축 목표 — 매달 80만원
-		db.prepare('INSERT OR REPLACE INTO month_save_goal (month, amount) VALUES (?, ?)').run(
-			month,
-			800_000
-		);
 
 		// 저축 — 1일에 비상금 50만원 자동이체, 26일에 월급 들어온 뒤 여행 기금 30만원
 		if (lastDay >= 1 && emergencyGoal !== null) {
@@ -661,6 +664,9 @@ export function updateCategory(id: number, name: string, color: string): void {
 			cat.name,
 			cat.kind
 		);
+		if (cat.kind === 'spend') {
+			db.prepare('UPDATE category_budgets SET category = ? WHERE category = ?').run(name, cat.name);
+		}
 	}
 }
 
@@ -676,8 +682,52 @@ export function deleteCategory(id: number): boolean {
 		)
 		.get(id);
 	if (used) return false;
+	db.prepare(
+		'DELETE FROM category_budgets WHERE category = (SELECT name FROM categories WHERE id = ?)'
+	).run(id);
 	db.prepare('DELETE FROM categories WHERE id = ?').run(id);
 	return true;
+}
+
+/* ------------------------------------------------------------------ */
+/* 분류별 월 예산 — 매달 같은 금액이 적용된다                            */
+/* ------------------------------------------------------------------ */
+
+export function listBudgets(): Record<string, number> {
+	const rows = getDb()
+		.prepare('SELECT category, amount FROM category_budgets')
+		.all() as unknown as {
+		category: string;
+		amount: number;
+	}[];
+	return Object.fromEntries(rows.map((r) => [r.category, r.amount]));
+}
+
+/** amount 가 null 이면 예산을 없앤다 */
+export function setBudget(category: string, amount: number | null): void {
+	const db = getDb();
+	if (amount === null || amount <= 0) {
+		db.prepare('DELETE FROM category_budgets WHERE category = ?').run(category);
+	} else {
+		db.prepare(
+			'INSERT INTO category_budgets (category, amount) VALUES (?, ?) ON CONFLICT(category) DO UPDATE SET amount = excluded.amount'
+		).run(category, amount);
+	}
+}
+
+/** 그 달의 마감 잔액 — 시작금액이 없으면 null */
+export function monthBalance(month: string): number | null {
+	const db = getDb();
+	const start = db.prepare('SELECT amount FROM month_start WHERE month = ?').get(month) as
+		{ amount: number } | undefined;
+	if (!start) return null;
+	const [from, to] = monthBounds(month);
+	const rows = db
+		.prepare('SELECT kind, SUM(amount) AS s FROM entries WHERE date BETWEEN ? AND ? GROUP BY kind')
+		.all(from, to) as unknown as { kind: Kind; s: number }[];
+	let balance = start.amount;
+	for (const r of rows) balance += r.kind === 'income' ? r.s : -r.s;
+	return balance;
 }
 
 export function listPaymentMethods(): PaymentMethod[] {
@@ -763,23 +813,6 @@ export function deleteSavingsGoal(id: number): void {
 	db.prepare('DELETE FROM savings_goals WHERE id = ?').run(id);
 }
 
-export function getMonthSaveGoal(month: string): number | null {
-	const r = getDb().prepare('SELECT amount FROM month_save_goal WHERE month = ?').get(month) as
-		{ amount: number } | undefined;
-	return r?.amount ?? null;
-}
-
-export function setMonthSaveGoal(month: string, amount: number | null): void {
-	const db = getDb();
-	if (amount === null) {
-		db.prepare('DELETE FROM month_save_goal WHERE month = ?').run(month);
-	} else {
-		db.prepare(
-			'INSERT INTO month_save_goal (month, amount) VALUES (?, ?) ON CONFLICT(month) DO UPDATE SET amount = excluded.amount'
-		).run(month, amount);
-	}
-}
-
 /* ------------------------------------------------------------------ */
 /* 월 데이터 집계                                                        */
 /* ------------------------------------------------------------------ */
@@ -851,7 +884,8 @@ export function getMonthData(month: string, selectedDay: number): MonthData {
 			spend: 0,
 			income: 0,
 			save: 0,
-			fixed: 0
+			fixed: 0,
+			alerts: []
 		});
 	}
 	let spendTotal = 0;
@@ -930,21 +964,95 @@ export function getMonthData(month: string, selectedDay: number): MonthData {
 			(a, b) => (methodOrder.get(a.id) ?? 0) - (methodOrder.get(b.id) ?? 0) || b.amount - a.amount
 		);
 
-	// 저축 목표 — 누적 저축 대비 달성률
+	// 저축 목표 — 누적 저축 대비 달성률, 이 달에 모아야 할 금액
 	const goalSums = db
 		.prepare(
 			"SELECT goal_id, SUM(amount) AS s FROM entries WHERE kind = 'save' AND goal_id IS NOT NULL GROUP BY goal_id"
 		)
 		.all() as unknown as { goal_id: number; s: number }[];
 	const goalSumMap = new Map(goalSums.map((r) => [r.goal_id, r.s]));
+	// 이 달이 시작되기 전까지 쌓인 금액 — 이 달 필요액은 그 시점의 남은 금액으로 계산한다
+	const beforeSums = db
+		.prepare(
+			"SELECT goal_id, SUM(amount) AS s FROM entries WHERE kind = 'save' AND goal_id IS NOT NULL AND date < ? GROUP BY goal_id"
+		)
+		.all(from) as unknown as { goal_id: number; s: number }[];
+	const beforeMap = new Map(beforeSums.map((r) => [r.goal_id, r.s]));
 	const savingsGoals: SavingsGoalInfo[] = listSavingsGoals().map((g) => {
 		const saved = goalSumMap.get(g.id) ?? 0;
+		const monthsLeft = monthsBetween(month, g.endMonth) + 1; // 이 달 포함
+		const left = Math.max(0, g.targetAmount - (beforeMap.get(g.id) ?? 0));
 		return {
 			...g,
 			saved,
-			progress: g.targetAmount > 0 ? Math.min(100, Math.round((saved / g.targetAmount) * 100)) : 0
+			progress: g.targetAmount > 0 ? Math.min(100, Math.round((saved / g.targetAmount) * 100)) : 0,
+			monthlyNeeded: monthsLeft >= 1 ? Math.ceil(left / monthsLeft) : 0
 		};
 	});
+	const monthSavePlan = savingsGoals.reduce((sum, g) => sum + g.monthlyNeeded, 0);
+
+	// 분류별 예산 — 사용률과 경고 단계(80% 이상 주의, 100% 초과 초과)
+	const budgetMap = listBudgets();
+	const budgets: BudgetInfo[] = Object.entries(budgetMap)
+		.filter(([name]) => colors.has(name))
+		.map(([name, budget]) => {
+			const spent = catMap.get(name)?.amount ?? 0;
+			const pct = Math.round((spent / budget) * 100);
+			return {
+				name,
+				color: colors.get(name) ?? '#6B7280',
+				budget,
+				spent,
+				pct,
+				level: spent > budget ? 'over' : pct >= 80 ? 'warn' : 'ok'
+			} satisfies BudgetInfo;
+		})
+		.sort((a, b) => b.pct - a.pct);
+
+	// 날짜별 경고 — 누적 지출이 80%·100%를 처음 넘은 날에 표시한다
+	const budgetRunning: Record<string, number> = {};
+	for (const cell of byDay) {
+		for (const e of cell.entries) {
+			if (e.kind !== 'spend' || budgetMap[e.category] === undefined) continue;
+			const before = budgetRunning[e.category] ?? 0;
+			const after = before + e.amount;
+			budgetRunning[e.category] = after;
+			const limit = budgetMap[e.category];
+			const level =
+				before <= limit && after > limit
+					? 'over'
+					: before < limit * 0.8 && after >= limit * 0.8
+						? 'warn'
+						: null;
+			if (level) {
+				const same = cell.alerts.find((a) => a.category === e.category);
+				if (same) same.level = level === 'over' ? 'over' : same.level;
+				else cell.alerts.push({ category: e.category, level });
+			}
+		}
+	}
+
+	// 지난달 대비 — 이번 달은 지난달의 같은 기간(1일~오늘)과 비교한다
+	const prevMonth = addMonths(month, -1);
+	const compareDays = todayInMonth ? today.getDate() : month < monthKey(today) ? daysInMonth : 0;
+	const prevLast = Math.min(compareDays, daysInMonthOf(prevMonth));
+	const prevRows =
+		prevLast > 0
+			? (db
+					.prepare(
+						"SELECT category, SUM(amount) AS s FROM entries WHERE kind = 'spend' AND date BETWEEN ? AND ? GROUP BY category"
+					)
+					.all(`${prevMonth}-01`, `${prevMonth}-${pad2(prevLast)}`) as unknown as {
+					category: string;
+					s: number;
+				}[])
+			: [];
+	const compare: MonthCompare = {
+		prevMonth,
+		days: prevLast,
+		prevSpendTotal: prevRows.reduce((s, r) => s + r.s, 0),
+		byCategory: prevRows.map((r) => ({ name: r.category, amount: r.s }))
+	};
 
 	const safeDay = Math.min(Math.max(selectedDay, 1), daysInMonth);
 	const selectedDate = `${month}-${pad2(safeDay)}`;
@@ -971,9 +1079,144 @@ export function getMonthData(month: string, selectedDay: number): MonthData {
 		categories: listCategories(),
 		paymentMethods: listPaymentMethods(),
 		savingsGoals,
-		monthSaveGoal: getMonthSaveGoal(month),
+		monthSavePlan,
+		budgets,
+		compare,
+		prevBalance: monthBalance(prevMonth),
 		selectedDay: safeDay,
 		selectedDate,
 		selectedEntries: byDay[safeDay - 1].entries
 	};
+}
+
+/* ------------------------------------------------------------------ */
+/* 내역 검색                                                            */
+/* ------------------------------------------------------------------ */
+
+export type EntrySort = 'date_desc' | 'date_asc' | 'amount_desc' | 'amount_asc';
+
+export interface EntryFilter {
+	q?: string;
+	kind?: Kind;
+	category?: string;
+	methodId?: number;
+	from?: string;
+	to?: string;
+	min?: number;
+	max?: number;
+	source?: 'fixed' | 'manual';
+	sort: EntrySort;
+}
+
+export interface EntrySearchResult {
+	rows: Entry[];
+	count: number; // 조건에 맞는 전체 건수(rows 는 limit 까지만)
+	spend: number;
+	income: number;
+	save: number;
+}
+
+const SORT_SQL: Record<EntrySort, string> = {
+	date_desc: 'e.date DESC, e.id DESC',
+	date_asc: 'e.date ASC, e.id ASC',
+	amount_desc: 'e.amount DESC, e.date DESC',
+	amount_asc: 'e.amount ASC, e.date DESC'
+};
+
+/** 메모·분류 검색어, 종류·분류·결제수단·기간·금액 범위로 내역을 찾는다 */
+export function searchEntries(f: EntryFilter, limit = 300): EntrySearchResult {
+	const db = getDb();
+	const where: string[] = [];
+	const params: (string | number)[] = [];
+
+	if (f.q) {
+		const like = `%${f.q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+		where.push("(e.memo LIKE ? ESCAPE '\\' OR e.category LIKE ? ESCAPE '\\')");
+		params.push(like, like);
+	}
+	if (f.kind) {
+		where.push('e.kind = ?');
+		params.push(f.kind);
+	}
+	if (f.category) {
+		where.push('e.category = ?');
+		params.push(f.category);
+	}
+	if (f.methodId !== undefined) {
+		where.push('e.method_id = ?');
+		params.push(f.methodId);
+	}
+	if (f.from) {
+		where.push('e.date >= ?');
+		params.push(f.from);
+	}
+	if (f.to) {
+		where.push('e.date <= ?');
+		params.push(f.to);
+	}
+	if (f.min !== undefined) {
+		where.push('e.amount >= ?');
+		params.push(f.min);
+	}
+	if (f.max !== undefined) {
+		where.push('e.amount <= ?');
+		params.push(f.max);
+	}
+	if (f.source === 'fixed') where.push("e.source LIKE 'fixed:%'");
+	if (f.source === 'manual') where.push("e.source NOT LIKE 'fixed:%'");
+	const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+	const raw = db
+		.prepare(
+			`SELECT e.*, m.name AS method_name, g.name AS goal_name
+			   FROM entries e
+			   LEFT JOIN payment_methods m ON m.id = e.method_id
+			   LEFT JOIN savings_goals g ON g.id = e.goal_id
+			   ${clause}
+			   ORDER BY ${SORT_SQL[f.sort]}
+			   LIMIT ${Math.floor(limit)}`
+		)
+		.all(...params) as unknown as {
+		id: number;
+		date: string;
+		kind: Kind;
+		amount: number;
+		category: string;
+		memo: string;
+		source: string;
+		method_id: number | null;
+		goal_id: number | null;
+		method_name: string | null;
+		goal_name: string | null;
+	}[];
+
+	const sums = db
+		.prepare(
+			`SELECT e.kind AS kind, COUNT(*) AS n, SUM(e.amount) AS s FROM entries e ${clause} GROUP BY e.kind`
+		)
+		.all(...params) as unknown as { kind: Kind; n: number; s: number }[];
+	const result: EntrySearchResult = {
+		rows: raw.map((r) => ({
+			id: r.id,
+			date: r.date,
+			kind: r.kind,
+			amount: r.amount,
+			category: r.category,
+			memo: r.memo,
+			source: r.source,
+			methodId: r.method_id,
+			methodName: r.method_name,
+			goalId: r.goal_id,
+			goalName: r.goal_name
+		})),
+		count: 0,
+		spend: 0,
+		income: 0,
+		save: 0
+	};
+	for (const r of sums) {
+		result.count += r.n;
+		result[r.kind] = r.s;
+	}
+	return result;
 }

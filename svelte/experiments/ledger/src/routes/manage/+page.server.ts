@@ -11,6 +11,14 @@ import {
 	readInt
 } from '#lib/server/validate';
 
+/** 월 예산 입력 — 비우면 null(예산 없음), 숫자가 아니면 NaN */
+function readBudget(form: FormData): number | null {
+	const raw = form.get('budget');
+	if (typeof raw !== 'string' || raw.trim() === '') return null;
+	const n = parseAmount(raw);
+	return Number.isFinite(n) && n > 0 ? n : NaN;
+}
+
 export const load: PageServerLoad = async ({ parent }) => {
 	await db.ensureSeeded();
 	const { month } = await parent();
@@ -86,7 +94,12 @@ export const actions: Actions = {
 		if (hasCategory(kind, name))
 			return fail(400, { where: 'catAdd', message: '같은 이름의 분류가 이미 있어요.' });
 
+		const budget = readBudget(form);
+		if (Number.isNaN(budget))
+			return fail(400, { where: 'catAdd', message: '월 예산 금액을 확인해 주세요.' });
+
 		db.addCategory(kind, name, color);
+		if (kind === 'spend') db.setBudget(name, budget);
 		return { where: 'catAdd', ok: true };
 	},
 
@@ -104,7 +117,12 @@ export const actions: Actions = {
 		if (hasCategory(kind, name, id))
 			return fail(400, { where: 'catUpdate', message: '같은 이름의 분류가 이미 있어요.' });
 
+		const budget = readBudget(form);
+		if (Number.isNaN(budget))
+			return fail(400, { where: 'catUpdate', message: '월 예산 금액을 확인해 주세요.' });
+
 		db.updateCategory(id, name, color);
+		if (kind === 'spend') db.setBudget(name, budget);
 		return { where: 'catUpdate', ok: true };
 	},
 

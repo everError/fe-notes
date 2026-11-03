@@ -11,6 +11,7 @@
 
 	const nav = [
 		{ path: '/', label: '가계부', icon: 'calendar' },
+		{ path: '/entries', label: '내역', icon: 'list' },
 		{ path: '/insights', label: '분석', icon: 'chart' },
 		{ path: '/manage', label: '관리', icon: 'settings' }
 	] as const;
@@ -98,14 +99,14 @@
 			{/if}
 		</header>
 
-		<main class="mx-auto w-full max-w-[1160px] px-4 lg:px-8">
+		<main class="mx-auto w-full max-w-[1320px] px-4 lg:px-8">
 			{@render children()}
 		</main>
 	</div>
 
 	<!-- 모바일 하단 탭 -->
 	<nav
-		class="fixed inset-x-0 bottom-0 z-30 grid grid-cols-3 border-t border-line bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden"
+		class="fixed inset-x-0 bottom-0 z-30 grid grid-cols-4 border-t border-line bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden"
 		aria-label="주 메뉴"
 	>
 		{#each nav as item (item.path)}

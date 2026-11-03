@@ -5,6 +5,7 @@
 	import { resolve } from '$app/paths';
 	import type { PageProps } from './$types';
 	import Icon from '#lib/components/Icon.svelte';
+	import SaveProgress from '#lib/components/SaveProgress.svelte';
 	import { SAVE_COLOR, INCOME_COLOR } from '#lib/categories';
 	import { compact, dayLabel, firstWeekdayOf, num, signed, weekdayOf, WEEKDAYS } from '#lib/format';
 	import type { DayCell, Entry, Kind } from '#lib/types';
@@ -38,6 +39,7 @@
 		goalId: string;
 	} | null>(null);
 	let startOpen = $state(false);
+	let startInput = $state('');
 
 	/** 분류 칩 목록 — 종류별 */
 	const catList = (k: Kind) => data.categories.filter((c) => k !== 'save' && c.kind === k);
@@ -88,11 +90,26 @@
 		return { start, balance, pct, low: pct <= 20 };
 	});
 
-	const hasSaveCard = $derived(data.monthSaveGoal !== null || data.saveTotal > 0);
-	const saveGoalPct = $derived(
-		data.monthSaveGoal && data.monthSaveGoal > 0
-			? Math.min(100, Math.round((data.saveTotal / data.monthSaveGoal) * 100))
-			: null
+	const budgetBy = $derived(Object.fromEntries(data.budgets.map((b) => [b.name, b])));
+	const selectedBudget = $derived(formKind === 'spend' ? (budgetBy[formCategory] ?? null) : null);
+
+	/** 남은 날 기준 하루·이번 주 사용 가능액 — 이번 달에만 계산한다 */
+	const pace = $derived.by(() => {
+		if (!data.todayInMonth || data.balance === null) return null;
+		const remainingDays = data.daysInMonth - todayDay + 1; // 오늘 포함
+		const unrecordedFixed = data.fixedDefs
+			.filter((d) => !data.recordedFixedIds.includes(d.id))
+			.reduce((sum, d) => sum + d.amount, 0);
+		const available = data.balance - unrecordedFixed;
+		const daily = Math.floor(available / remainingDays);
+		const weekday = new Date(`${data.today}T00:00:00`).getDay();
+		const weekDaysLeft = Math.min(7 - weekday, remainingDays); // 오늘부터 토요일까지
+		return { remainingDays, unrecordedFixed, available, daily, weekDaysLeft };
+	});
+
+	/** 지난달 같은 기간과 비교한 지출 증감 */
+	const spendDelta = $derived(
+		data.compare.days > 0 ? data.spendTotal - data.compare.prevSpendTotal : null
 	);
 
 	const weeks = $derived.by(() => {
@@ -169,7 +186,7 @@
 	function setKind(k: Kind) {
 		formKind = k;
 		if (k !== 'spend') formMethodId = '';
-		if (k !== 'save') formGoalId = '';
+		formGoalId = k === 'save' ? formGoalId || String(data.savingsGoals[0]?.id ?? '') : '';
 	}
 
 	function startEdit(e: Entry) {
@@ -189,7 +206,12 @@
 		editBuf.kind = k;
 		editBuf.category = normalizeCategory(k, editBuf.category);
 		if (k !== 'spend') editBuf.methodId = '';
-		if (k !== 'save') editBuf.goalId = '';
+		editBuf.goalId = k === 'save' ? editBuf.goalId || String(data.savingsGoals[0]?.id ?? '') : '';
+	}
+
+	function openStart() {
+		startInput = data.startAmount === null ? '' : num(data.startAmount);
+		startOpen = true;
 	}
 
 	/** 숫자만 남기고 천 단위 쉼표를 붙인다 */
@@ -260,20 +282,52 @@
 				<div class="mt-2 flex items-center justify-between gap-2 text-[12px] text-mute">
 					<span class="tnum">{Math.round(gauge.pct)}% 남음 · 시작 {num(gauge.start)}원</span>
 					{#if !startOpen}
-						<button class="btn-ghost" onclick={() => (startOpen = true)}>
+						<button class="btn-ghost" onclick={openStart}>
 							<Icon name="edit" size={12} /> 시작금액
 						</button>
 					{/if}
 				</div>
+				{#if pace}
+					<div class="mt-3 rounded-xl bg-surface-2 px-3 py-2.5 text-[12.5px]">
+						{#if pace.available < 0}
+							<p class="tnum font-semibold text-danger">
+								남은 돈보다 나갈 돈이 {num(-pace.available)}원 많아요
+							</p>
+						{:else}
+							<p class="tnum">
+								<span class="text-mute">하루</span>
+								<span class="font-num text-[15px] font-bold">{num(Math.max(0, pace.daily))}원</span>
+								<span class="text-mute"> · 이번 주 남은 {pace.weekDaysLeft}일 동안</span>
+								<span class="font-num text-[15px] font-bold"
+									>{num(Math.max(0, pace.daily) * pace.weekDaysLeft)}원</span
+								>
+							</p>
+						{/if}
+						<p class="tnum mt-0.5 text-[11.5px] text-mute">
+							남은 {pace.remainingDays}일(오늘 포함)
+							{#if pace.unrecordedFixed > 0}
+								· 아직 기록하지 않은 고정지출 {num(pace.unrecordedFixed)}원 반영
+							{/if}
+						</p>
+					</div>
+				{/if}
 			{:else}
 				<p class="mt-1 font-num text-[30px] leading-none font-semibold text-faint">—</p>
 				<p class="mt-2 max-w-sm text-[13px] leading-relaxed text-mute">
 					이번 달 시작 금액이 아직 없어요. 월초에 쓸 수 있는 돈을 정해 두면 남은 돈을 계산해 드려요.
 				</p>
 				{#if !startOpen}
-					<button class="btn btn-sm btn-brand mt-3" onclick={() => (startOpen = true)}>
-						시작금액 정하기
-					</button>
+					<div class="mt-3 flex flex-wrap items-center gap-2">
+						{#if data.prevBalance !== null}
+							<form method="POST" action={act('carryStart')} use:enhance>
+								<input type="hidden" name="month" value={data.month} />
+								<button class="btn btn-sm btn-brand">
+									지난달 남은 돈 {num(Math.max(0, data.prevBalance))}원으로 시작
+								</button>
+							</form>
+						{/if}
+						<button class="btn-ghost" onclick={openStart}>직접 정하기</button>
+					</div>
 				{/if}
 			{/if}
 			{#if startOpen}
@@ -291,7 +345,8 @@
 					<input type="hidden" name="month" value={data.month} />
 					<input
 						name="amount"
-						value={data.startAmount ?? ''}
+						bind:value={startInput}
+						oninput={() => (startInput = money(startInput))}
 						inputmode="numeric"
 						placeholder="예: 2,600,000"
 						class="input font-num tabular-nums"
@@ -302,6 +357,15 @@
 						취소
 					</button>
 				</form>
+				{#if data.prevBalance !== null}
+					<button
+						type="button"
+						class="btn-ghost mt-2"
+						onclick={() => (startInput = money(String(Math.max(0, data.prevBalance ?? 0))))}
+					>
+						지난달 남은 돈 {num(Math.max(0, data.prevBalance))}원 넣기
+					</button>
+				{/if}
 				{#if msgOf('setStart')}<p class="msg-error mt-2">{msgOf('setStart')}</p>{/if}
 			{/if}
 		</div>
@@ -327,62 +391,64 @@
 			<p class="tnum mt-1.5 text-[11.5px] text-mute">
 				{#if data.fixedTotal > 0}고정 {num(data.fixedTotal)}원 포함{:else}고정지출 없음{/if}
 			</p>
+			{#if spendDelta !== null}
+				<p
+					class="tnum mt-0.5 text-[11.5px] font-semibold {spendDelta > 0
+						? 'text-danger'
+						: spendDelta < 0
+							? 'text-income'
+							: 'text-mute'}"
+				>
+					지난달 같은 기간보다 {spendDelta === 0
+						? '같아요'
+						: `${num(Math.abs(spendDelta))}원 ${spendDelta > 0 ? '많아요' : '적어요'}`}
+				</p>
+			{/if}
+		</div>
+
+		<!-- 저축 -->
+		<div class="card col-span-2 flex items-start gap-4 p-4">
+			<span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-save-soft text-save">
+				<Icon name="target" size={20} />
+			</span>
+			<div class="min-w-0 flex-1">
+				<SaveProgress saved={data.saveTotal} plan={data.monthSavePlan} />
+			</div>
+		</div>
+
+		<!-- 고정지출 -->
+		<div class="card col-span-2 flex items-center gap-4 p-4">
+			<span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-soft text-brand">
+				<Icon name="repeat" size={20} />
+			</span>
+			<div class="min-w-0 flex-1">
+				{#if pendingFixed.length > 0}
+					<p class="text-[13px] font-semibold">기록하지 않은 고정지출 {pendingFixed.length}건</p>
+					<p class="truncate text-[12px] text-mute">{pendingFixed.map((d) => d.name).join(', ')}</p>
+				{:else}
+					<p class="text-[13px] font-semibold">고정지출 {data.fixedDefs.length}건</p>
+					<p class="text-[12px] text-mute">
+						{data.fixedDefs.length === 0
+							? '관리 화면에서 매달 나가는 돈을 등록해 보세요.'
+							: '지정일이 지난 항목은 모두 기록했어요.'}
+					</p>
+				{/if}
+			</div>
+			{#if pendingFixed.length > 0}
+				<form method="POST" action={act('recordAllFixed')} use:enhance>
+					<input type="hidden" name="month" value={data.month} />
+					<button class="btn btn-sm btn-brand shrink-0">
+						<Icon name="check" size={13} /> 한 번에 기록
+					</button>
+				</form>
+			{/if}
 		</div>
 	</section>
 
-	<!-- 저축 진행 + 고정지출 안내 -->
-	{#if hasSaveCard || pendingFixed.length > 0}
-		<section class="grid gap-3 {hasSaveCard && pendingFixed.length > 0 ? 'md:grid-cols-2' : ''}">
-			{#if hasSaveCard}
-				<div class="card flex items-center gap-4 p-4">
-					<span
-						class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-save-soft text-save"
-					>
-						<Icon name="target" size={20} />
-					</span>
-					<div class="min-w-0 flex-1">
-						<p class="flex items-baseline justify-between gap-2 text-[13px] font-semibold">
-							<span>이번 달 저축</span>
-							<span class="font-num text-save tabular-nums">
-								{num(data.saveTotal)}{data.monthSaveGoal ? ` / ${num(data.monthSaveGoal)}` : ''}원
-							</span>
-						</p>
-						{#if saveGoalPct !== null}
-							<div class="mt-2 h-1.5 overflow-hidden rounded-full bg-save-soft">
-								<div class="h-full rounded-full bg-save" style="width: {saveGoalPct}%"></div>
-							</div>
-						{/if}
-					</div>
-				</div>
-			{/if}
-			{#if pendingFixed.length > 0}
-				<div class="card flex items-center gap-4 p-4">
-					<span
-						class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-soft text-brand"
-					>
-						<Icon name="repeat" size={20} />
-					</span>
-					<div class="min-w-0 flex-1">
-						<p class="text-[13px] font-semibold">기록하지 않은 고정지출 {pendingFixed.length}건</p>
-						<p class="truncate text-[12px] text-mute">
-							{pendingFixed.map((d) => d.name).join(', ')}
-						</p>
-					</div>
-					<form method="POST" action={act('recordAllFixed')} use:enhance>
-						<input type="hidden" name="month" value={data.month} />
-						<button class="btn btn-sm btn-brand shrink-0">
-							<Icon name="check" size={13} /> 한 번에 기록
-						</button>
-					</form>
-				</div>
-			{/if}
-		</section>
-	{/if}
-
-	<div class="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_372px]">
+	<div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_344px]">
 		<!-- ── 달력 ──────────────────────────────── -->
-		<section class="card p-3 sm:p-4" aria-label="{data.monthLabel} 달력">
-			<div class="grid grid-cols-7 gap-1 pb-1.5" aria-hidden="true">
+		<section class="card flex flex-col p-3 sm:p-4" aria-label="{data.monthLabel} 달력">
+			<div class="grid grid-cols-7 gap-1.5 pb-2" aria-hidden="true">
 				{#each WEEKDAYS as w, i (w)}
 					<span
 						class="text-center text-[11.5px] font-semibold {i === 0
@@ -396,13 +462,14 @@
 				{/each}
 			</div>
 
-			<div class="grid grid-cols-7 gap-1" role="grid">
+			<div class="grid flex-1 auto-rows-fr grid-cols-7 gap-1.5" role="grid">
 				{#each weeks as row, ri (ri)}
 					{#each row as cell, ci (cell ? cell.date : `empty-${ri}-${ci}`)}
 						{#if cell}
 							{@const selected = cell.day === data.selectedDay}
 							{@const isToday = cell.date === data.today}
 							{@const future = cell.date > data.today}
+							{@const shown = [...cell.entries].sort((a, b) => b.amount - a.amount).slice(0, 3)}
 							<a
 								href={resolve(`/?m=${data.month}&d=${cell.day}`)}
 								data-sveltekit-noscroll
@@ -410,25 +477,80 @@
 									? `, 지출 ${num(cell.spend)}원`
 									: ''}{cell.income > 0 ? `, 입금 ${num(cell.income)}원` : ''}{cell.save > 0
 									? `, 저축 ${num(cell.save)}원`
+									: ''}{cell.alerts.length > 0
+									? `, 예산 경고: ${cell.alerts.map((a) => `${a.category} ${a.level === 'over' ? '초과' : '80% 도달'}`).join(', ')}`
 									: ''}"
 								aria-current={isToday ? 'date' : undefined}
-								class="group flex h-[70px] flex-col rounded-xl p-1 transition-colors sm:h-[96px] sm:p-2 {selected
+								class="flex min-h-[72px] min-w-0 flex-col rounded-xl p-1 transition-colors sm:min-h-[128px] sm:p-1.5 {selected
 									? 'bg-brand-soft ring-2 ring-brand'
 									: future
-										? 'bg-transparent hover:bg-surface-2'
-										: 'bg-surface-2/60 hover:bg-surface-2'}"
+										? 'bg-transparent ring-1 ring-line ring-inset hover:bg-surface-2'
+										: 'bg-surface-2/70 hover:bg-surface-2'}"
 							>
-								<span
-									class="grid h-5 min-w-5 place-items-center self-start rounded-full px-1 font-num text-[12px] font-semibold tabular-nums {isToday
-										? 'bg-brand text-white'
-										: future
-											? 'text-faint'
-											: 'text-ink'}"
-								>
-									{cell.day}
+								<span class="flex items-center justify-between gap-1">
+									<span
+										class="grid h-5 min-w-5 place-items-center rounded-full px-1 font-num text-[12px] font-semibold tabular-nums {isToday
+											? 'bg-brand text-white'
+											: future
+												? 'text-faint'
+												: 'text-ink'}"
+									>
+										{cell.day}
+									</span>
+									<span class="flex items-center gap-1">
+										{#if cell.fixed > 0}
+											<span
+												class="h-1.5 w-1.5 rounded-[2px] border border-ink/60"
+												title="고정지출"
+												aria-hidden="true"
+											></span>
+										{/if}
+										{#if cell.alerts.length > 0}
+											<span
+												class="grid h-4 min-w-4 place-items-center rounded-full text-[10px] leading-none font-bold {cell.alerts.some(
+													(a) => a.level === 'over'
+												)
+													? 'bg-danger text-white'
+													: 'bg-brand-soft text-brand'}"
+												title={cell.alerts
+													.map(
+														(a) => `${a.category} 예산 ${a.level === 'over' ? '초과' : '80% 도달'}`
+													)
+													.join(', ')}>!</span
+											>
+										{/if}
+									</span>
 								</span>
+
+								<!-- 넓은 화면: 그날 내역을 줄로 -->
+								<span class="mt-1 hidden min-w-0 flex-1 flex-col gap-[3px] sm:flex">
+									{#each shown as e (e.id)}
+										<span
+											class="flex min-w-0 items-center justify-between gap-1 rounded-[5px] border-l-[3px] bg-[color-mix(in_srgb,var(--c)_14%,transparent)] py-[2px] pr-1 pl-1 text-[11px] leading-tight"
+											style="--c: {colorOf(e)}; border-color: var(--c)"
+										>
+											<span class="min-w-0 truncate font-medium">{e.memo || e.category}</span>
+											<span
+												class="shrink-0 font-num tabular-nums {e.kind === 'income'
+													? 'text-income'
+													: e.kind === 'save'
+														? 'text-save'
+														: ''}"
+											>
+												{e.kind === 'spend' ? '-' : e.kind === 'income' ? '+' : ''}{compact(
+													e.amount
+												)}
+											</span>
+										</span>
+									{/each}
+									{#if cell.entries.length > 3}
+										<span class="px-1 text-[10.5px] text-mute">외 {cell.entries.length - 3}건</span>
+									{/if}
+								</span>
+
+								<!-- 좁은 화면: 합계와 분류 점 -->
 								<span
-									class="mt-auto space-y-px text-right font-num text-[9.5px] leading-tight font-medium tabular-nums sm:text-[11.5px]"
+									class="mt-auto space-y-px text-right font-num text-[9.5px] leading-tight font-medium tabular-nums sm:hidden"
 								>
 									{#if cell.income > 0}
 										<span class="block truncate text-income">+{compact(cell.income)}</span>
@@ -441,18 +563,15 @@
 									{/if}
 								</span>
 								{#if cell.entries.length > 0}
-									<span class="mt-1 flex items-center gap-[3px]" aria-hidden="true">
+									<span class="mt-1 flex items-center gap-[3px] sm:hidden" aria-hidden="true">
 										{#each dots(cell) as c, i (i)}
 											<span class="h-1.5 w-1.5 rounded-full" style="background: {c}"></span>
 										{/each}
-										{#if cell.fixed > 0}
-											<span class="ml-auto h-1.5 w-1.5 rounded-[2px] border border-ink/60"></span>
-										{/if}
 									</span>
 								{/if}
 							</a>
 						{:else}
-							<div class="h-[70px] sm:h-[96px]" aria-hidden="true"></div>
+							<div aria-hidden="true"></div>
 						{/if}
 					{/each}
 				{/each}
@@ -463,18 +582,23 @@
 				<span>- 지출</span>
 				<span class="text-save">저축</span>
 				<span class="flex items-center gap-1.5">
-					<span class="h-1.5 w-1.5 rounded-full bg-ink/40"></span> 분류별 지출
+					<span class="h-1.5 w-1.5 rounded-[2px] border border-ink/60"></span> 고정지출이 있는 날
 				</span>
 				<span class="flex items-center gap-1.5">
-					<span class="h-1.5 w-1.5 rounded-[2px] border border-ink/60"></span> 고정지출
+					<span
+						class="grid h-4 w-4 place-items-center rounded-full bg-brand-soft text-[10px] font-bold text-brand"
+						>!</span
+					>
+					예산 80% 도달 · <span class="text-danger">초과</span>
 				</span>
+				<span class="hidden sm:inline">금액이 큰 순서로 3건까지 보여요</span>
 			</p>
 		</section>
 
 		<!-- ── 선택한 날 ─────────────────────────── -->
 		<aside
 			bind:this={panelEl}
-			class="card scroll-mt-16 overflow-hidden xl:sticky xl:top-16"
+			class="card scroll-mt-16 overflow-hidden"
 			aria-label="선택한 날의 기록"
 		>
 			<header class="flex items-start justify-between gap-2 border-b border-line px-4 py-3.5">
@@ -552,9 +676,35 @@
 								>
 									<span class="h-2 w-2 rounded-full" style="background: {c.color}"></span>
 									{c.name}
+									{#if formKind === 'spend' && budgetBy[c.name] && budgetBy[c.name].level !== 'ok'}
+										<span
+											class="rounded-full px-1.5 text-[10.5px] font-bold {budgetBy[c.name].level ===
+											'over'
+												? 'bg-danger text-white'
+												: 'bg-brand-soft text-brand'}"
+											title="예산 {budgetBy[c.name].pct}% 사용"
+										>
+											{budgetBy[c.name].level === 'over' ? '초과' : `${budgetBy[c.name].pct}%`}
+										</span>
+									{/if}
 								</button>
 							{/each}
 						</div>
+						{#if selectedBudget}
+							<p
+								class="tnum rounded-lg px-3 py-2 text-[12px] {selectedBudget.level === 'over'
+									? 'bg-danger-soft text-danger'
+									: selectedBudget.level === 'warn'
+										? 'bg-brand-soft text-brand'
+										: 'bg-surface-2 text-mute'}"
+							>
+								{selectedBudget.name} 예산 {num(selectedBudget.budget)}원 중 {selectedBudget.pct}%
+								사용 ·
+								{selectedBudget.level === 'over'
+									? `${num(selectedBudget.spent - selectedBudget.budget)}원 초과`
+									: `${num(selectedBudget.budget - selectedBudget.spent)}원 남음`}
+							</p>
+						{/if}
 					{/if}
 
 					{#if formKind === 'spend'}
@@ -565,12 +715,20 @@
 							{/each}
 						</select>
 					{:else if formKind === 'save'}
-						<select name="goalId" bind:value={formGoalId} class="input" aria-label="저축 목표">
-							<option value="">저축 목표 선택 안 함</option>
-							{#each data.savingsGoals as g (g.id)}
-								<option value={String(g.id)}>{g.name}</option>
-							{/each}
-						</select>
+						{#if data.savingsGoals.length === 0}
+							<p class="msg-error">
+								저축은 목표를 정해야 기록할 수 있어요. 관리 화면에서 저축 목표를 먼저 만들어 주세요.
+							</p>
+						{:else}
+							<label class="block">
+								<span class="eyebrow mb-1 block">어느 목표에 저축하나요?</span>
+								<select name="goalId" bind:value={formGoalId} class="input" required>
+									{#each data.savingsGoals as g (g.id)}
+										<option value={String(g.id)}>{g.name}</option>
+									{/each}
+								</select>
+							</label>
+						{/if}
 					{/if}
 
 					<div class="flex items-center gap-2">
@@ -660,8 +818,8 @@
 											bind:value={editBuf.goalId}
 											class="input"
 											aria-label="저축 목표"
+											required
 										>
-											<option value="">저축 목표 선택 안 함</option>
 											{#each data.savingsGoals as g (g.id)}
 												<option value={String(g.id)}>{g.name}</option>
 											{/each}
