@@ -1,0 +1,135 @@
+@import 'tailwindcss';
+
+/* 로컬 번들 폰트 — 런타임 외부 요청 없음 */
+@font-face {
+	font-family: 'Pretendard Variable';
+	font-weight: 45 920;
+	font-style: normal;
+	font-display: swap;
+	src: url('/fonts/PretendardVariable.woff2') format('woff2-variations');
+}
+@font-face {
+	font-family: 'Jost';
+	font-weight: 100 900;
+	font-style: normal;
+	font-display: swap;
+	src: url('/fonts/Jost-var.woff2') format('woff2-variations');
+}
+
+@theme {
+	/* 차분한 회색 바탕 위에 흰 면, 잉크색 본문, 파랑 하나만 강조색으로 사용한다 */
+	--color-canvas: #f4f5f7;
+	--color-surface: #ffffff;
+	--color-surface-2: #f0f2f5;
+	--color-line: #e4e7ec;
+	--color-line-strong: #cfd4dc;
+	--color-ink: #12161c;
+	--color-mute: #5b6472;
+	--color-faint: #98a2b3;
+	--color-brand: #3454d1;
+	--color-brand-soft: #e9eeff;
+	--color-income: #0b8f66;
+	--color-income-soft: #e3f6ee;
+	--color-save: #7048e8;
+	--color-save-soft: #efeaff;
+	--color-danger: #d92d3a;
+	--color-danger-soft: #fdecee;
+	--font-sans:
+		'Pretendard Variable', 'Pretendard', -apple-system, 'Segoe UI', 'Malgun Gothic', sans-serif;
+	--font-num: 'Jost', 'Pretendard Variable', 'Segoe UI', sans-serif;
+	--shadow-card: 0 1px 2px rgb(16 24 40 / 0.04), 0 4px 16px rgb(16 24 40 / 0.04);
+}
+
+@layer base {
+	html {
+		color-scheme: light;
+		caret-color: var(--color-brand);
+	}
+	body {
+		@apply bg-canvas font-sans text-ink antialiased;
+	}
+	::selection {
+		background: var(--color-brand);
+		color: #fff;
+	}
+	:focus-visible {
+		outline: 2px solid var(--color-brand);
+		outline-offset: 2px;
+		border-radius: 4px;
+	}
+	input,
+	select,
+	textarea,
+	button {
+		font: inherit;
+		color: inherit;
+	}
+	button:not(:disabled),
+	summary {
+		cursor: pointer;
+	}
+	@media (prefers-reduced-motion: reduce) {
+		*,
+		*::before,
+		*::after {
+			animation-duration: 0.01ms !important;
+			animation-iteration-count: 1 !important;
+			transition-duration: 0.01ms !important;
+		}
+	}
+}
+
+@layer components {
+	.card {
+		@apply rounded-2xl border border-line bg-surface shadow-card;
+	}
+	.card-title {
+		@apply text-[15px] font-bold tracking-tight;
+	}
+	.eyebrow {
+		@apply text-[12px] font-semibold text-mute;
+	}
+
+	.btn {
+		@apply inline-flex items-center justify-center gap-1.5 rounded-xl bg-ink px-4 py-2.5 text-[14px] font-bold text-white transition hover:bg-ink/85 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40;
+	}
+	.btn-sm {
+		@apply rounded-lg px-3 py-1.5 text-[12.5px];
+	}
+	.btn-brand {
+		@apply bg-brand hover:bg-brand/90;
+	}
+	.btn-ghost {
+		@apply inline-flex items-center justify-center gap-1.5 rounded-lg border border-line-strong bg-surface px-3 py-1.5 text-[12.5px] font-semibold text-mute transition hover:border-ink/40 hover:text-ink active:scale-[0.98];
+	}
+	.btn-danger {
+		@apply bg-danger hover:bg-danger/90;
+	}
+	.iconbtn {
+		@apply grid h-8 w-8 shrink-0 place-items-center rounded-lg text-mute transition hover:bg-surface-2 hover:text-ink;
+	}
+	.iconbtn-danger {
+		@apply hover:bg-danger-soft hover:text-danger;
+	}
+
+	.input {
+		@apply w-full rounded-xl border border-line-strong bg-surface px-3 py-2.5 text-[14px] text-ink transition placeholder:text-faint focus:border-brand focus:ring-3 focus:ring-brand/15 focus:outline-none;
+	}
+	.chip {
+		@apply inline-flex items-center gap-1.5 rounded-full border border-line-strong bg-surface px-3 py-1.5 text-[12.5px] font-semibold text-mute transition hover:border-ink/40 hover:text-ink disabled:cursor-not-allowed disabled:opacity-40;
+	}
+	.chip[aria-pressed='true'] {
+		@apply border-ink bg-ink text-white;
+	}
+	.pill {
+		@apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold;
+	}
+	.msg-error {
+		@apply rounded-lg bg-danger-soft px-3 py-2 text-[12.5px] font-medium text-danger;
+	}
+}
+
+/* 금액 열 정렬 */
+.tnum {
+	font-variant-numeric: tabular-nums;
+}
