@@ -1,19 +1,50 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { page } from '$app/state';
+	import { resolve } from '$app/paths';
 	import type { SubmitFunction } from '$app/forms';
 	import type { PageProps } from './$types';
 	import Icon from '#lib/components/Icon.svelte';
 	import { COLOR_CHOICES } from '#lib/categories';
-	import { num } from '#lib/format';
+	import { cycleText, num } from '#lib/format';
 
 	let { data, form }: PageProps = $props();
+
+	const EXPORTS = [
+		['entries', '내역 (지출·입금·저축)'],
+		['payments', '카드대금 결제'],
+		['transfers', '송금'],
+		['adjustments', '카드 금액 조정'],
+		['balances', '월초 잔액 기록']
+	] as const;
 
 	/** 열려 있는 입력 폼 — 'fixed' 같은 새로 만들기, 'fixed:3' 같은 수정 */
 	let open = $state<string | null>(null);
 	let catKind = $state<'spend' | 'income'>('spend');
 	let confirmReset = $state(false);
+	let newMethodKind = $state<'card' | 'account'>('card');
+	let newCycle = $state('');
+	let newPay = $state('');
+	const cycleNum = (v: string) => {
+		const n = Number(v);
+		return Number.isInteger(n) && n >= 1 && n <= 28 ? n : 1;
+	};
+	const payNum = (v: string) => {
+		const n = Number(v);
+		return Number.isInteger(n) && n >= 1 && n <= 31 ? n : null;
+	};
 
-	const act = (name: string) => `?/${name}&m=${data.month}`;
+	/** 설정 화면은 탭으로 나눠 한 번에 한 가지만 보여 준다 */
+	const TABS = [
+		['fixed', '고정지출'],
+		['categories', '분류·예산'],
+		['methods', '카드·통장'],
+		['goals', '저축 목표'],
+		['data', '데이터']
+	] as const;
+	const tab = $derived(page.url.searchParams.get('tab') ?? 'fixed');
+
+	const act = (name: string) => `?/${name}&m=${data.month}&tab=${tab}`;
 	const todayMonth = $derived(data.today.slice(0, 7));
 	const todayDay = $derived(Number(data.today.slice(8, 10)));
 	const budgetOf = (name: string) => data.budgets.find((b) => b.name === name)?.budget ?? null;
@@ -50,7 +81,7 @@
 </script>
 
 <svelte:head>
-	<title>관리 — 달통장</title>
+	<title>{TABS.find(([k]) => k === tab)?.[1] ?? '설정'} — 달통장</title>
 </svelte:head>
 
 {#snippet colorPicker(selected: string)}
@@ -67,8 +98,32 @@
 	</div>
 {/snippet}
 
+{#snippet naturePicker(selected: string)}
+	<div class="flex items-center gap-2" role="radiogroup" aria-label="성격">
+		<span class="eyebrow">성격</span>
+		{#each [['consume', '소비'], ['bill', '공과금']] as const as [v, label] (v)}
+			<label class="cursor-pointer">
+				<input type="radio" name="nature" value={v} checked={v === selected} class="peer sr-only" />
+				<span
+					class="block rounded-lg bg-surface px-3 py-1 text-[12px] font-bold text-mute peer-checked:bg-ink peer-checked:text-surface peer-focus-visible:ring-2 peer-focus-visible:ring-brand"
+					>{label}</span
+				>
+			</label>
+		{/each}
+	</div>
+{/snippet}
+
 <div class="space-y-4 pt-1 pb-4">
+	<!-- 좁은 화면에서는 탭을 위에 둔다(넓은 화면은 좌측 메뉴) -->
+	<nav class="flex flex-wrap gap-1.5 lg:hidden" aria-label="설정 메뉴">
+		{#each TABS as [key, label] (key)}
+			<a class="chip" href={resolve(`/manage?tab=${key}`)} aria-current={tab === key ? 'page' : undefined}
+				>{label}</a
+			>
+		{/each}
+	</nav>
 	<!-- ── 고정지출 ──────────────────────────────── -->
+	{#if tab === 'fixed'}
 	<section class="card p-4 sm:p-5" aria-label="고정지출">
 		<header class="flex flex-wrap items-center justify-between gap-2">
 			<div>
@@ -91,6 +146,7 @@
 			day: number | string;
 			amount: number | string;
 			category: string;
+			methodId: string;
 		})}
 			<div
 				class="grid grid-cols-2 gap-2 sm:grid-cols-[minmax(0,1.4fr)_84px_minmax(0,1fr)_minmax(0,1fr)]"
@@ -128,6 +184,22 @@
 					{#each spendCats as c (c.name)}<option value={c.name}>{c.name}</option>{/each}
 				</select>
 			</div>
+			<label class="mt-2 block">
+				<span class="eyebrow mb-1 block">어디서 나가나요? (카드·통장)</span>
+				<select name="methodId" value={v.methodId} class="input" aria-label="결제수단">
+					<option value="">정하지 않음 — 통장·카드 잔액에는 반영 안 돼요</option>
+					{#if methodsOf('card').length > 0}
+						<optgroup label="카드">
+							{#each methodsOf('card') as m (m.id)}<option value={String(m.id)}>{m.name}</option>{/each}
+						</optgroup>
+					{/if}
+					{#if methodsOf('account').length > 0}
+						<optgroup label="통장">
+							{#each methodsOf('account') as m (m.id)}<option value={String(m.id)}>{m.name}</option>{/each}
+						</optgroup>
+					{/if}
+				</select>
+			</label>
 		{/snippet}
 
 		{#if open === 'fixed'}
@@ -137,7 +209,13 @@
 				use:enhance={closeOnSuccess}
 				class="mt-3 space-y-2.5 rounded-xl bg-surface-2 p-3"
 			>
-				{@render fixedFields({ name: '', day: '', amount: '', category: spendCats[0]?.name ?? '' })}
+				{@render fixedFields({
+						name: '',
+						day: '',
+						amount: '',
+						category: spendCats[0]?.name ?? '',
+						methodId: ''
+					})}
 				{#if msg('addFixed')}<p class="msg-error">{msg('addFixed')}</p>{/if}
 				<div class="flex justify-end gap-1.5">
 					<button type="button" class="btn-ghost" onclick={() => (open = null)}>취소</button>
@@ -161,7 +239,8 @@
 								name: def.name,
 								day: def.day,
 								amount: num(def.amount),
-								category: def.category
+								category: def.category,
+								methodId: def.methodId === null ? '' : String(def.methodId)
 							})}
 							{#if msg('updateFixed')}<p class="msg-error">{msg('updateFixed')}</p>{/if}
 							<div class="flex justify-end gap-1.5">
@@ -175,7 +254,14 @@
 					<li class="flex flex-wrap items-center gap-x-3 gap-y-1 py-3">
 						<div class="min-w-0 flex-1">
 							<p class="truncate text-[14px] font-semibold">{def.name}</p>
-							<p class="text-[12px] text-mute">매달 {def.day}일 · {def.category}</p>
+							<p class="text-[12px] text-mute">
+								매달 {def.day}일 · {def.category} ·
+								{#if def.methodName}
+									<span class="font-semibold text-ink">{def.methodName}</span>
+								{:else}
+									<span class="text-faint">결제수단 없음</span>
+								{/if}
+							</p>
 						</div>
 						<span class="font-num text-[14px] font-semibold tabular-nums">{num(def.amount)}원</span>
 						{#if recorded}
@@ -215,9 +301,11 @@
 			{/each}
 		</ul>
 	</section>
+	{/if}
 
-	<div class="grid items-stretch gap-4 lg:grid-cols-2">
+	<div class="space-y-4">
 		<!-- ── 분류 ────────────────────────────── -->
+		{#if tab === 'categories'}
 		<section class="card p-4 sm:p-5" aria-label="분류">
 			<header class="flex flex-wrap items-center justify-between gap-2">
 				<h2 class="card-title">분류</h2>
@@ -248,7 +336,9 @@
 				</div>
 			</header>
 
-			{#if msg('catDelete')}<p class="msg-error mt-3">{msg('catDelete')}</p>{/if}
+			{#if msg('catDelete', 'budgetSet')}<p class="msg-error mt-3">
+					{msg('catDelete', 'budgetSet')}
+				</p>{/if}
 
 			{#if open === 'cat'}
 				<form
@@ -273,6 +363,7 @@
 						</label>
 					{/if}
 					{@render colorPicker(COLOR_CHOICES[5])}
+					{#if catKind === 'spend'}{@render naturePicker('consume')}{/if}
 					{#if msg('catAdd')}<p class="msg-error">{msg('catAdd')}</p>{/if}
 					<div class="flex justify-end gap-1.5">
 						<button type="button" class="btn-ghost" onclick={() => (open = null)}>취소</button>
@@ -308,6 +399,7 @@
 									</label>
 								{/if}
 								{@render colorPicker(c.color)}
+								{#if catKind === 'spend'}{@render naturePicker(c.nature)}{/if}
 								{#if msg('catUpdate')}<p class="msg-error">{msg('catUpdate')}</p>{/if}
 								<div class="flex justify-end gap-1.5">
 									<button type="button" class="btn-ghost" onclick={() => (open = null)}>취소</button
@@ -319,13 +411,32 @@
 					{:else}
 						<li class="flex items-center gap-3 py-2.5">
 							<span class="h-3 w-3 shrink-0 rounded-full" style="background: {c.color}"></span>
-							<span class="min-w-0 flex-1 truncate text-[14px] font-semibold">{c.name}</span>
-							{#if c.kind === 'spend' && budgetOf(c.name) !== null}
-								<span class="pill tnum bg-brand-soft text-brand">
-									예산 {num(budgetOf(c.name)!)}원
-								</span>
+							<span class="min-w-[4.5rem] flex-1">
+								<span class="block truncate text-[14px] font-semibold">{c.name}</span>
+								{#if c.builtin || (c.kind === 'spend' && c.nature === 'bill')}
+									<span class="block text-[10.5px] leading-tight text-faint">
+										{[c.builtin ? '기본' : '', c.kind === 'spend' && c.nature === 'bill' ? '공과금' : '']
+											.filter(Boolean)
+											.join(' · ')}
+									</span>
+								{/if}
+							</span>
+							{#if c.kind === 'spend'}
+								<form method="POST" action={act('budgetSet')} use:enhance class="relative w-28 shrink-0">
+									<input type="hidden" name="id" value={c.id} />
+									<input
+										name="budget"
+										value={budgetOf(c.name) === null ? '' : num(budgetOf(c.name)!)}
+										oninput={money}
+										onchange={(e) => e.currentTarget.form?.requestSubmit()}
+										inputmode="numeric"
+										placeholder="월 예산"
+										class="input h-8 pr-7 text-right font-num text-[13px] tabular-nums"
+										aria-label="{c.name} 월 예산"
+									/>
+									<span class="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-[12px] text-mute">원</span>
+								</form>
 							{/if}
-							{#if c.builtin}<span class="pill bg-surface-2 text-mute">기본</span>{/if}
 							<button
 								class="iconbtn"
 								aria-label="{c.name} 수정"
@@ -348,9 +459,11 @@
 				{/each}
 			</ul>
 		</section>
+		{/if}
 
-		<div class="flex flex-col gap-4">
+		<div class="space-y-4">
 			<!-- ── 결제수단 ──────────────────────── -->
+			{#if tab === 'methods'}
 			<section class="card flex-1 p-4 sm:p-5" aria-label="결제수단">
 				<header class="flex items-center justify-between gap-2">
 					<h2 class="card-title">결제수단</h2>
@@ -369,12 +482,41 @@
 						class="mt-3 space-y-2.5 rounded-xl bg-surface-2 p-3"
 					>
 						<div class="grid grid-cols-[110px_minmax(0,1fr)] gap-2">
-							<select name="kind" class="input" aria-label="종류">
+							<select name="kind" bind:value={newMethodKind} class="input" aria-label="종류">
 								<option value="card">카드</option>
 								<option value="account">통장</option>
 							</select>
 							<input name="name" placeholder="이름" class="input" aria-label="이름" />
 						</div>
+						{#if newMethodKind === 'card'}
+							<div class="grid grid-cols-2 gap-2">
+								<label class="block">
+									<span class="eyebrow mb-1 block">이용기간 시작일</span>
+									<input
+										name="cycleStart"
+										bind:value={newCycle}
+										inputmode="numeric"
+										placeholder="1 (비우면 1일)"
+										class="input font-num tabular-nums"
+										aria-label="카드 이용기간 시작일"
+									/>
+								</label>
+								<label class="block">
+									<span class="eyebrow mb-1 block">결제일</span>
+									<input
+										name="payDay"
+										bind:value={newPay}
+										inputmode="numeric"
+										placeholder="예: 15"
+										class="input font-num tabular-nums"
+										aria-label="카드 결제일"
+									/>
+								</label>
+							</div>
+							<p class="text-[12px] leading-relaxed text-mute">
+								{cycleText(cycleNum(newCycle), payNum(newPay))}
+							</p>
+						{/if}
 						{#if msg('methodAdd')}<p class="msg-error">{msg('methodAdd')}</p>{/if}
 						<div class="flex justify-end gap-1.5">
 							<button type="button" class="btn-ghost" onclick={() => (open = null)}>취소</button>
@@ -397,6 +539,34 @@
 									>
 										<input type="hidden" name="id" value={m.id} />
 										<input name="name" value={m.name} class="input" aria-label="이름" />
+										{#if m.kind === 'card'}
+											<div class="grid grid-cols-2 gap-2">
+												<label class="block">
+													<span class="eyebrow mb-1 block">이용기간 시작일</span>
+													<input
+														name="cycleStart"
+														value={m.cycleStart}
+														inputmode="numeric"
+														class="input font-num tabular-nums"
+														aria-label="카드 이용기간 시작일"
+													/>
+												</label>
+												<label class="block">
+													<span class="eyebrow mb-1 block">결제일</span>
+													<input
+														name="payDay"
+														value={m.payDay ?? ''}
+														inputmode="numeric"
+														placeholder="예: 15"
+														class="input font-num tabular-nums"
+														aria-label="카드 결제일"
+													/>
+												</label>
+											</div>
+											<p class="text-[12px] leading-relaxed text-mute">
+												지금 설정: {cycleText(m.cycleStart, m.payDay)}
+											</p>
+										{/if}
 										{#if msg('methodUpdate')}<p class="msg-error">{msg('methodUpdate')}</p>{/if}
 										<div class="flex justify-end gap-1.5">
 											<button type="button" class="btn-ghost" onclick={() => (open = null)}
@@ -408,8 +578,15 @@
 								</li>
 							{:else}
 								<li class="flex items-center gap-3 py-2.5">
-									<Icon name="wallet" size={16} />
-									<span class="min-w-0 flex-1 truncate text-[14px] font-semibold">{m.name}</span>
+									<Icon name={m.kind === 'card' ? 'card' : 'wallet'} size={16} />
+									<span class="min-w-0 flex-1">
+										<span class="block truncate text-[14px] font-semibold">{m.name}</span>
+										{#if m.kind === 'card'}
+											<span class="block text-[11px] leading-snug text-mute">
+												{m.payDay ? cycleText(m.cycleStart, m.payDay) : '결제일 미정'}
+											</span>
+										{/if}
+									</span>
 									<button
 										class="iconbtn"
 										aria-label="{m.name} 수정"
@@ -431,8 +608,10 @@
 					</ul>
 				{/each}
 			</section>
+			{/if}
 
 			<!-- ── 저축 목표 ─────────────────────── -->
+			{#if tab === 'goals'}
 			<section class="card flex-1 p-4 sm:p-5" aria-label="저축 목표">
 				<header class="flex items-center justify-between gap-2">
 					<h2 class="card-title">저축 목표</h2>
@@ -446,7 +625,7 @@
 					남은 달 수로 나눠 자동으로 계산해요.
 				</p>
 
-				{#snippet goalFields(v: { name: string; amount: string; endMonth: string })}
+				{#snippet goalFields(v: { name: string; amount: string; endMonth: string; initial: string })}
 					<div class="grid grid-cols-2 gap-2">
 						<input
 							name="name"
@@ -470,8 +649,20 @@
 							value={v.endMonth}
 							class="input font-num"
 							aria-label="목표 달"
-						/>
-					</div>
+							/>
+							<label class="col-span-2 block">
+								<span class="eyebrow mb-1 block">기존 저축금액 (이미 모아 둔 돈 · 선택)</span>
+								<input
+									name="initial"
+									value={v.initial}
+									oninput={money}
+									inputmode="numeric"
+									placeholder="예: 1,200,000"
+									class="input font-num tabular-nums"
+									aria-label="기존 저축금액"
+								/>
+							</label>
+						</div>
 				{/snippet}
 
 				{#if open === 'goal'}
@@ -481,7 +672,7 @@
 						use:enhance={closeOnSuccess}
 						class="mt-3 space-y-2.5 rounded-xl bg-surface-2 p-3"
 					>
-						{@render goalFields({ name: '', amount: '', endMonth: '' })}
+						{@render goalFields({ name: '', amount: '', endMonth: '', initial: '' })}
 						{#if msg('goalAdd')}<p class="msg-error">{msg('goalAdd')}</p>{/if}
 						<div class="flex justify-end gap-1.5">
 							<button type="button" class="btn-ghost" onclick={() => (open = null)}>취소</button>
@@ -504,7 +695,8 @@
 									{@render goalFields({
 										name: g.name,
 										amount: num(g.targetAmount),
-										endMonth: g.endMonth
+										endMonth: g.endMonth,
+										initial: g.initialAmount ? num(g.initialAmount) : ''
 									})}
 									{#if msg('goalUpdate')}<p class="msg-error">{msg('goalUpdate')}</p>{/if}
 									<div class="flex justify-end gap-1.5">
@@ -520,7 +712,9 @@
 								<div class="min-w-0 flex-1">
 									<p class="truncate text-[14px] font-semibold">{g.name}</p>
 									<p class="tnum text-[12px] text-mute">
-										{num(g.targetAmount)}원 · {g.endMonth}까지 · {g.progress}% 달성
+										{num(g.targetAmount)}원 · {g.endMonth}까지 · {g.progress}% 달성{g.initialAmount
+												? ` · 기존 ${num(g.initialAmount)}원 포함`
+												: ''}
 									</p>
 								</div>
 								<button
@@ -545,8 +739,23 @@
 					{/each}
 				</ul>
 			</section>
+			{/if}
 		</div>
 	</div>
+
+	<!-- ── 내보내기 ─────────────────────────────── -->
+	{#if tab === 'data'}
+	<section class="card p-4 sm:p-5" aria-label="데이터 내보내기">
+		<h2 class="card-title">데이터 내보내기</h2>
+		<p class="mt-0.5 text-[12.5px] leading-relaxed text-mute">
+			입력한 데이터를 엑셀에서 바로 열 수 있는 CSV 파일로 내려받아요. 내려받기만 하고 저장된 데이터는 바뀌지 않아요.
+		</p>
+		<div class="mt-3 flex flex-wrap gap-2">
+			{#each EXPORTS as [type, label] (type)}
+				<a class="btn-ghost" href={resolve(`/export?type=${type}`)} download>{label}</a>
+			{/each}
+		</div>
+	</section>
 
 	<!-- ── 데이터 ─────────────────────────────── -->
 	<section
@@ -554,13 +763,13 @@
 		aria-label="데이터"
 	>
 		<div>
-			<h2 class="card-title">예시 데이터로 되돌리기</h2>
+			<h2 class="card-title">데이터 모두 지우기</h2>
 			<p class="mt-0.5 text-[12.5px] text-mute">
-				지금까지의 기록과 설정을 모두 지우고 예시 데이터를 다시 만들어요.
+				저장된 내역, 고정지출, 예산, 저축 목표, 결제수단을 모두 지워요. 되돌릴 수 없어요.
 			</p>
 		</div>
 		{#if confirmReset}
-			<form method="POST" action="?/reset" class="flex items-center gap-2">
+			<form method="POST" action="?/clearAll" class="flex items-center gap-2">
 				<span class="text-[12.5px] font-medium text-danger">정말 모두 지울까요?</span>
 				<button type="button" class="btn-ghost" onclick={() => (confirmReset = false)}>취소</button>
 				<button class="btn btn-sm btn-danger">모두 지우기</button>
@@ -570,8 +779,9 @@
 				class="btn-ghost !border-danger/40 !text-danger"
 				onclick={() => (confirmReset = true)}
 			>
-				<Icon name="refresh" size={13} /> 되돌리기
+				<Icon name="trash" size={13} /> 모두 지우기
 			</button>
 		{/if}
 	</section>
+	{/if}
 </div>

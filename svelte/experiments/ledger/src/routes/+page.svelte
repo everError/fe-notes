@@ -7,7 +7,20 @@
 	import Icon from '#lib/components/Icon.svelte';
 	import SaveProgress from '#lib/components/SaveProgress.svelte';
 	import { SAVE_COLOR, INCOME_COLOR } from '#lib/categories';
-	import { compact, dayLabel, firstWeekdayOf, num, signed, weekdayOf, WEEKDAYS } from '#lib/format';
+	import {
+		addMonths,
+		compact,
+		dateKey,
+		dayLabel,
+		daysInMonthOf,
+		firstWeekdayOf,
+		md,
+		num,
+		pad2,
+		signed,
+		weekdayOf,
+		WEEKDAYS
+	} from '#lib/format';
 	import type { DayCell, Entry, Kind } from '#lib/types';
 
 	let { data, form }: PageProps = $props();
@@ -22,6 +35,8 @@
 	let formKind = $state<Kind>('spend');
 	let pickedCategory = $state('');
 	let formMethodId = $state('');
+	const accounts = $derived(data.paymentMethods.filter((m) => m.kind === 'account'));
+	const defaultAccountId = $derived(String(accounts[0]?.id ?? ''));
 	let formGoalId = $state('');
 	let amtInput = $state('');
 	let memoInput = $state('');
@@ -37,9 +52,16 @@
 		memo: string;
 		methodId: string;
 		goalId: string;
+		installments: string;
 	} | null>(null);
-	let startOpen = $state(false);
-	let startInput = $state('');
+	let mode = $state<'entry' | 'pay' | 'transfer'>('entry'); // 날짜 패널의 입력 종류
+	let formInstallments = $state('1');
+	let trFrom = $state('');
+	let trTo = $state('');
+	let trAmount = $state('');
+	let payCardSel = $state('');
+	let payAmount = $state('');
+	let payAccountId = $state('');
 
 	/** 분류 칩 목록 — 종류별 */
 	const catList = (k: Kind) => data.categories.filter((c) => k !== 'save' && c.kind === k);
@@ -59,7 +81,7 @@
 		void data.month;
 		void data.selectedDate;
 		editBuf = null;
-		startOpen = false;
+		mode = 'entry';
 	});
 
 	/* 좁은 화면에서는 날짜를 누르면 기록 패널로 이동한다 */
@@ -86,8 +108,8 @@
 		if (data.startAmount === null || data.balance === null) return null;
 		const { startAmount: start, balance } = data;
 		const pct =
-			start > 0 ? Math.max(0, Math.min(100, (balance / start) * 100)) : balance >= 0 ? 100 : 0;
-		return { start, balance, pct, low: pct <= 20 };
+			start > 0 ? Math.max(0, Math.min(100, (balance / start) * 100)) : null; // 월초가 0 이하면 비율을 말할 수 없다
+		return { start, balance, pct, low: balance < 0 || (pct !== null && pct <= 20) };
 	});
 
 	const budgetBy = $derived(Object.fromEntries(data.budgets.map((b) => [b.name, b])));
@@ -139,6 +161,93 @@
 			.map(([name]) => catColor[name] ?? '#6B7280');
 	}
 
+	/* ---------------- 달력 보조 정보 ---------------- */
+	/** 그 달에서 가장 많이 쓴 날 — 칸 배경의 진하기 기준 */
+	const maxDaySpend = $derived(Math.max(1, ...data.byDay.map((c) => c.spend)));
+	const pastDays = $derived(data.byDay.filter((c) => c.date <= data.today));
+	const elapsedDays = $derived(pastDays.length);
+	const noSpendDays = $derived(pastDays.filter((c) => c.spend === 0).length);
+	const dailyAvg = $derived(
+		elapsedDays > 0 ? Math.round(pastDays.reduce((s, c) => s + c.spend, 0) / elapsedDays) : 0
+	);
+	const topDay = $derived(
+		pastDays.reduce<DayCell | null>((best, c) => (!best || c.spend > best.spend ? c : best), null)
+	);
+
+	/** 한 주(달력 한 줄)의 합계 */
+	function weekSum(row: (DayCell | null)[]) {
+		const cells = row.filter((c): c is DayCell => c !== null);
+		return {
+			spend: cells.reduce((s, c) => s + c.spend, 0),
+			income: cells.reduce((s, c) => s + c.income, 0),
+			noSpend: cells.filter((c) => c.date <= data.today && c.spend === 0).length
+		};
+	}
+	/** 이번 달이면 이번 주 지출, 지난 달이면 가장 많이 쓴 주 */
+	const weekFocus = $derived.by(() => {
+		if (data.todayInMonth) {
+			const row = weeks.find((r) => r.some((c) => c?.date === data.today));
+			return row ? weekSum(row).spend : 0;
+		}
+		return Math.max(0, ...weeks.map((r) => weekSum(r).spend));
+	});
+
+	type Plan = { date: string; label: string; amount: number; kind: 'fixed' | 'card' };
+	/** 아직 기록하지 않은 고정지출과 카드 결제일 — 날짜별 */
+	const plannedByDate = $derived.by(() => {
+		const map = new Map<string, Plan[]>();
+		const push = (p: Plan) => map.set(p.date, [...(map.get(p.date) ?? []), p]);
+		for (const d of data.fixedDefs) {
+			if (data.recordedFixedIds.includes(d.id)) continue;
+			const date = `${data.month}-${pad2(Math.min(d.day, data.daysInMonth))}`;
+			if (date >= data.today) push({ date, label: d.name, amount: d.amount, kind: 'fixed' });
+		}
+		for (const c of data.cardDebts) {
+			if (c.payDay === null) continue;
+			for (const [m, amount] of [
+				[c.bill.month, c.bill.due],
+				[c.bill.nextMonth, c.bill.next]
+			] as const) {
+				if (amount <= 0) continue;
+				const date = `${m}-${pad2(Math.min(c.payDay, daysInMonthOf(m)))}`;
+				if (date >= data.today) push({ date, label: c.name, amount, kind: 'card' });
+			}
+		}
+		return map;
+	});
+
+	/** 앞으로 30일 안의 고정지출·카드 결제 (이번 달을 보고 있을 때) */
+	const upcoming = $derived.by(() => {
+		if (!data.todayInMonth) return [];
+		const base = new Date(`${data.today}T00:00:00`);
+		const end = new Date(base);
+		end.setDate(end.getDate() + 30);
+		const endKey = dateKey(end);
+		const dday = (date: string) =>
+			Math.round((new Date(`${date}T00:00:00`).getTime() - base.getTime()) / 86_400_000);
+		const list: (Plan & { dday: number })[] = [];
+		const nextM = addMonths(data.month, 1);
+		for (const d of data.fixedDefs) {
+			for (const m of [data.month, nextM]) {
+				if (m === data.month && data.recordedFixedIds.includes(d.id)) continue;
+				const date = `${m}-${pad2(Math.min(d.day, daysInMonthOf(m)))}`;
+				if (date >= data.today && date <= endKey)
+					list.push({ date, label: d.name, amount: d.amount, kind: 'fixed', dday: dday(date) });
+			}
+		}
+		for (const [date, plans] of plannedByDate)
+			for (const p of plans) if (p.kind === 'card' && date <= endKey) list.push({ ...p, dday: dday(date) });
+		// 다음 달 카드 결제일도 30일 안이면 넣는다(이번 달 표에는 없는 날)
+		for (const c of data.cardDebts) {
+			if (c.payDay === null || c.bill.next <= 0) continue;
+			const date = `${c.bill.nextMonth}-${pad2(Math.min(c.payDay, daysInMonthOf(c.bill.nextMonth)))}`;
+			if (date <= endKey && !list.some((x) => x.kind === 'card' && x.date === date && x.label === c.name))
+				list.push({ date, label: c.name, amount: c.bill.next, kind: 'card', dday: dday(date) });
+		}
+		return list.sort((x, y) => x.date.localeCompare(y.date) || x.label.localeCompare(y.label));
+	});
+	const upcomingTotal = $derived(upcoming.reduce((s, u) => s + u.amount, 0));
+
 	const pendingFixed = $derived.by(() => {
 		const dueDay = data.todayInMonth ? todayDay : data.month < todayMonth ? 31 : 0;
 		return data.fixedDefs.filter((d) => !data.recordedFixedIds.includes(d.id) && d.day <= dueDay);
@@ -168,7 +277,8 @@
 			await update({ reset: false });
 			if (result.type === 'success') {
 				amtInput = '';
-				memoInput = '';
+memoInput = '';
+formInstallments = '1';
 				addedFlash = true;
 				setTimeout(() => (addedFlash = false), 2200);
 				amountEl?.focus();
@@ -185,7 +295,7 @@
 
 	function setKind(k: Kind) {
 		formKind = k;
-		if (k !== 'spend') formMethodId = '';
+		formMethodId = k === 'income' || k === 'save' ? defaultAccountId : '';
 		formGoalId = k === 'save' ? formGoalId || String(data.savingsGoals[0]?.id ?? '') : '';
 	}
 
@@ -197,7 +307,8 @@
 			category: e.category,
 			memo: e.memo,
 			methodId: e.methodId === null ? '' : String(e.methodId),
-			goalId: e.goalId === null ? '' : String(e.goalId)
+			goalId: e.goalId === null ? '' : String(e.goalId),
+			installments: String(e.installments ?? 1)
 		};
 	}
 
@@ -205,14 +316,66 @@
 		if (!editBuf) return;
 		editBuf.kind = k;
 		editBuf.category = normalizeCategory(k, editBuf.category);
-		if (k !== 'spend') editBuf.methodId = '';
+		if (k === 'income' || k === 'save') {
+			if (!accounts.some((a) => String(a.id) === editBuf!.methodId)) editBuf.methodId = defaultAccountId;
+		}
 		editBuf.goalId = k === 'save' ? editBuf.goalId || String(data.savingsGoals[0]?.id ?? '') : '';
 	}
 
-	function openStart() {
-		startInput = data.startAmount === null ? '' : num(data.startAmount);
-		startOpen = true;
+	/** 날짜 패널의 '카드대금 결제' 열기 */
+	const modes = $derived.by(() => {
+		const list: ['entry' | 'pay' | 'transfer', string][] = [['entry', '내역 기록']];
+		if (data.cardDebts.length > 0 && accounts.length > 0) list.push(['pay', '카드대금 결제']);
+		if (accounts.length >= 2) list.push(['transfer', '송금']);
+		return list;
+	});
+
+	function setMode(m: 'entry' | 'pay' | 'transfer') {
+		if (m === 'pay') openPayMode();
+		else if (m === 'transfer') openTransferMode();
+		else mode = 'entry';
 	}
+
+	function openTransferMode() {
+		mode = 'transfer';
+		trFrom = String(accounts[0]?.id ?? '');
+		trTo = String(accounts[1]?.id ?? '');
+		trAmount = '';
+	}
+
+	function openPayMode() {
+		mode = 'pay';
+		const first = data.cardDebts[0];
+		payCardSel = String(first?.id ?? '');
+		payAmount = first ? num(first.bill.due > 0 ? first.bill.due : Math.max(0, first.owed)) : '';
+		payAccountId = String(data.accountBalances[0]?.id ?? '');
+	}
+
+	function pickPayCard(id: string) {
+		payCardSel = id;
+		const c = data.cardDebts.find((d) => String(d.id) === id);
+		payAmount = c ? num(c.bill.due > 0 ? c.bill.due : Math.max(0, c.owed)) : '';
+	}
+
+	const accountTotal = $derived(data.accountBalances.reduce((sum, a) => sum + a.current, 0));
+	const planMonth = $derived(
+		data.cardDebts.filter((c) => c.bill.due > 0).map((c) => c.bill.month).sort()[0] ?? null
+	);
+	/** 가장 먼저 돌아오는 결제 달의 카드대금 합계 */
+	const dueTotal = $derived(
+		data.cardDebts.filter((c) => c.bill.month === planMonth).reduce((sum, c) => sum + c.bill.due, 0)
+	);
+
+	const cardMethods = $derived(data.paymentMethods.filter((m) => m.kind === 'card'));
+	const isCard = (id: string) => cardMethods.some((m) => String(m.id) === id);
+	const INSTALLMENTS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 18, 24, 36];
+	const monthlyOf = (amount: string, n: string) => {
+		const total = Number(amount.replace(/[^\d]/g, ''));
+		return total > 0 && Number(n) > 1 ? Math.round(total / Number(n)) : 0;
+	};
+	const dayTransfers = $derived(data.transfers.filter((t) => t.date === data.selectedDate));
+
+	const dayPayments = $derived(data.cardPayments.filter((p) => p.date === data.selectedDate));
 
 	/** 숫자만 남기고 천 단위 쉼표를 붙인다 */
 	const money = (raw: string) => {
@@ -254,7 +417,7 @@
 	<!-- ── 요약 ─────────────────────────────────── -->
 	<section class="grid grid-cols-2 gap-3 lg:grid-cols-4" aria-label="이번 달 요약">
 		<!-- 남은 돈 -->
-		<div class="card col-span-2 p-5">
+		<div class="card col-span-2 p-5 lg:row-span-2">
 			<h2 class="eyebrow">남은 돈</h2>
 			{#if gauge}
 				<p class="mt-1 flex items-baseline gap-1.5">
@@ -268,25 +431,34 @@
 					<span class="text-[14px] text-mute">원</span>
 				</p>
 				<div
-					class="mt-3 h-2 overflow-hidden rounded-full bg-surface-2"
+					class="mt-3 h-2 overflow-hidden rounded-full bg-surface-2 {gauge.pct === null ? 'hidden' : ''}"
 					role="img"
-					aria-label="시작 금액의 {Math.round(gauge.pct)}% 남음"
+					aria-label="월초 금액의 {Math.round(gauge.pct ?? 0)}% 남음"
 				>
 					<div
 						class="h-full rounded-full transition-[width] duration-500 {gauge.low
 							? 'bg-danger'
 							: 'bg-brand'}"
-						style="width: {gauge.pct}%"
+						style="width: {gauge.pct ?? 0}%"
 					></div>
 				</div>
-				<div class="mt-2 flex items-center justify-between gap-2 text-[12px] text-mute">
-					<span class="tnum">{Math.round(gauge.pct)}% 남음 · 시작 {num(gauge.start)}원</span>
-					{#if !startOpen}
-						<button class="btn-ghost" onclick={openStart}>
-							<Icon name="edit" size={12} /> 시작금액
-						</button>
-					{/if}
-				</div>
+				<p class="tnum mt-2 text-[12px] text-mute">
+					{#if gauge.pct !== null}{Math.round(gauge.pct)}% 남음 · {/if}월초 {num(gauge.start)}원 · 이번 달 {signed(
+						gauge.balance - gauge.start
+					)}원
+				</p>
+				{#if dueTotal > 0 && data.accountBalances.length > 0}
+					<p
+						class="tnum mt-2 rounded-lg px-3 py-2 text-[12px] {accountTotal - dueTotal < 0
+							? 'bg-danger-soft text-danger'
+							: 'bg-surface-2 text-mute'}"
+					>
+						이번 카드대금 <b class="font-num text-ink">{num(dueTotal)}원</b>을 결제하면 통장에
+						<b class="font-num {accountTotal - dueTotal < 0 ? '' : 'text-ink'}"
+							>{num(accountTotal - dueTotal)}원</b
+						> 남아요
+					</p>
+				{/if}
 				{#if pace}
 					<div class="mt-3 rounded-xl bg-surface-2 px-3 py-2.5 text-[12.5px]">
 						{#if pace.available < 0}
@@ -314,64 +486,22 @@
 			{:else}
 				<p class="mt-1 font-num text-[30px] leading-none font-semibold text-faint">—</p>
 				<p class="mt-2 max-w-sm text-[13px] leading-relaxed text-mute">
-					이번 달 시작 금액이 아직 없어요. 월초에 쓸 수 있는 돈을 정해 두면 남은 돈을 계산해 드려요.
+					{#if data.accountBalances.length === 0}
+						등록된 통장이 없어요. 관리에서 통장을 추가한 뒤 통장별 잔액을 기록해 주세요.
+					{:else}
+						통장마다 지금 얼마 있는지 한 번만 기록하면, 다음 달부터는 자동으로 이어져요.
+					{/if}
 				</p>
-				{#if !startOpen}
-					<div class="mt-3 flex flex-wrap items-center gap-2">
-						{#if data.prevBalance !== null}
-							<form method="POST" action={act('carryStart')} use:enhance>
-								<input type="hidden" name="month" value={data.month} />
-								<button class="btn btn-sm btn-brand">
-									지난달 남은 돈 {num(Math.max(0, data.prevBalance))}원으로 시작
-								</button>
-							</form>
-						{/if}
-						<button class="btn-ghost" onclick={openStart}>직접 정하기</button>
+				{#if data.accountBalances.length > 0}
+					<div class="mt-3">
+						<a class="btn btn-sm btn-brand" href={resolve(`/wallet?m=${data.month}&edit=1`)}>통장 잔액 기록</a>
 					</div>
 				{/if}
-			{/if}
-			{#if startOpen}
-				<form
-					method="POST"
-					action={act('setStart')}
-					use:enhance={() => {
-						return async ({ result, update }) => {
-							await update({ reset: false });
-							if (result.type === 'success') startOpen = false;
-						};
-					}}
-					class="mt-3 flex items-center gap-2"
-				>
-					<input type="hidden" name="month" value={data.month} />
-					<input
-						name="amount"
-						bind:value={startInput}
-						oninput={() => (startInput = money(startInput))}
-						inputmode="numeric"
-						placeholder="예: 2,600,000"
-						class="input font-num tabular-nums"
-						aria-label="시작 금액"
-					/>
-					<button class="btn btn-sm shrink-0">저장</button>
-					<button type="button" class="btn-ghost shrink-0" onclick={() => (startOpen = false)}>
-						취소
-					</button>
-				</form>
-				{#if data.prevBalance !== null}
-					<button
-						type="button"
-						class="btn-ghost mt-2"
-						onclick={() => (startInput = money(String(Math.max(0, data.prevBalance ?? 0))))}
-					>
-						지난달 남은 돈 {num(Math.max(0, data.prevBalance))}원 넣기
-					</button>
-				{/if}
-				{#if msgOf('setStart')}<p class="msg-error mt-2">{msgOf('setStart')}</p>{/if}
 			{/if}
 		</div>
 
 		<!-- 입금 -->
-		<div class="card p-4">
+		<div class="card flex flex-col justify-center p-4">
 			<h3 class="eyebrow flex items-center gap-1.5">
 				<span class="h-2 w-2 rounded-full bg-income"></span> 입금
 			</h3>
@@ -381,7 +511,7 @@
 		</div>
 
 		<!-- 지출 -->
-		<div class="card p-4">
+		<div class="card flex flex-col justify-center p-4">
 			<h3 class="eyebrow flex items-center gap-1.5">
 				<span class="h-2 w-2 rounded-full bg-ink"></span> 지출
 			</h3>
@@ -407,7 +537,7 @@
 		</div>
 
 		<!-- 저축 -->
-		<div class="card col-span-2 flex items-start gap-4 p-4">
+		<div class="card col-span-2 flex items-center gap-4 p-4">
 			<span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-save-soft text-save">
 				<Icon name="target" size={20} />
 			</span>
@@ -417,7 +547,7 @@
 		</div>
 
 		<!-- 고정지출 -->
-		<div class="card col-span-2 flex items-center gap-4 p-4">
+		<div class="card col-span-2 flex items-center gap-4 p-4 lg:col-span-4">
 			<span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-soft text-brand">
 				<Icon name="repeat" size={20} />
 			</span>
@@ -445,10 +575,43 @@
 		</div>
 	</section>
 
-	<div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_344px]">
+<div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_344px]">
+		<div class="min-w-0 space-y-4">
 		<!-- ── 달력 ──────────────────────────────── -->
 		<section class="card flex flex-col p-3 sm:p-4" aria-label="{data.monthLabel} 달력">
-			<div class="grid grid-cols-7 gap-1.5 pb-2" aria-hidden="true">
+			<!-- 이번 달 한눈에 -->
+			{#if elapsedDays > 0}
+				<div class="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+					<div class="rounded-xl bg-surface-2 px-3 py-2">
+						<p class="text-[11px] font-semibold text-mute">하루 평균 지출</p>
+						<p class="tnum font-num text-[15px] font-semibold">{num(dailyAvg)}원</p>
+					</div>
+					<div class="rounded-xl bg-surface-2 px-3 py-2">
+						<p class="text-[11px] font-semibold text-mute">
+							{data.todayInMonth ? '이번 주 지출' : '지출이 가장 많은 주'}
+						</p>
+						<p class="tnum font-num text-[15px] font-semibold">{num(weekFocus)}원</p>
+					</div>
+					<div class="rounded-xl bg-income-soft px-3 py-2">
+						<p class="text-[11px] font-semibold text-income">무지출 날</p>
+						<p class="tnum font-num text-[15px] font-semibold">
+							{noSpendDays}일 <span class="text-[11px] font-normal text-mute">/ {elapsedDays}일</span>
+						</p>
+					</div>
+					<div class="rounded-xl bg-brand-soft px-3 py-2">
+						<p class="text-[11px] font-semibold text-brand">가장 많이 쓴 날</p>
+						<p class="tnum truncate font-num text-[15px] font-semibold">
+							{#if topDay && topDay.spend > 0}
+								{md(topDay.date)} · {compact(topDay.spend)}
+							{:else}
+								—
+							{/if}
+						</p>
+					</div>
+				</div>
+			{/if}
+
+			<div class="grid grid-cols-7 gap-1.5 pb-2 sm:grid-cols-[repeat(7,minmax(0,1fr))_86px]" aria-hidden="true">
 				{#each WEEKDAYS as w, i (w)}
 					<span
 						class="text-center text-[11.5px] font-semibold {i === 0
@@ -460,16 +623,23 @@
 						{w}
 					</span>
 				{/each}
+				<span class="hidden text-center text-[11.5px] font-semibold text-mute sm:block">주간 합계</span>
 			</div>
 
-			<div class="grid flex-1 auto-rows-fr grid-cols-7 gap-1.5" role="grid">
+			<div
+				class="grid flex-1 auto-rows-fr grid-cols-7 gap-1.5 sm:grid-cols-[repeat(7,minmax(0,1fr))_86px]"
+				role="grid"
+			>
 				{#each weeks as row, ri (ri)}
+					{@const wk = weekSum(row)}
 					{#each row as cell, ci (cell ? cell.date : `empty-${ri}-${ci}`)}
 						{#if cell}
 							{@const selected = cell.day === data.selectedDay}
 							{@const isToday = cell.date === data.today}
 							{@const future = cell.date > data.today}
-							{@const shown = [...cell.entries].sort((a, b) => b.amount - a.amount).slice(0, 3)}
+							{@const shown = [...cell.entries].sort((a, b) => b.amount - a.amount).slice(0, 2)}
+							{@const plans = plannedByDate.get(cell.date) ?? []}
+							{@const heat = !future && cell.spend > 0 ? Math.round((cell.spend / maxDaySpend) * 24) + 4 : 0}
 							<a
 								href={resolve(`/?m=${data.month}&d=${cell.day}`)}
 								data-sveltekit-noscroll
@@ -477,15 +647,20 @@
 									? `, 지출 ${num(cell.spend)}원`
 									: ''}{cell.income > 0 ? `, 입금 ${num(cell.income)}원` : ''}{cell.save > 0
 									? `, 저축 ${num(cell.save)}원`
+									: ''}{plans.length > 0
+									? `, 예정: ${plans.map((p) => `${p.label} ${num(p.amount)}원`).join(', ')}`
 									: ''}{cell.alerts.length > 0
 									? `, 예산 경고: ${cell.alerts.map((a) => `${a.category} ${a.level === 'over' ? '초과' : '80% 도달'}`).join(', ')}`
 									: ''}"
 								aria-current={isToday ? 'date' : undefined}
-								class="flex min-h-[72px] min-w-0 flex-col rounded-xl p-1 transition-colors sm:min-h-[128px] sm:p-1.5 {selected
-									? 'bg-brand-soft ring-2 ring-brand'
+								class="flex min-h-[76px] min-w-0 flex-col rounded-xl p-1 transition-colors sm:min-h-[92px] sm:p-1.5 2xl:min-h-[132px] {selected
+									? 'ring-2 ring-brand'
 									: future
-										? 'bg-transparent ring-1 ring-line ring-inset hover:bg-surface-2'
-										: 'bg-surface-2/70 hover:bg-surface-2'}"
+										? 'ring-1 ring-line ring-inset hover:bg-surface-2'
+										: 'hover:ring-1 hover:ring-line-strong'}"
+								style="background: {future
+									? 'transparent'
+									: `color-mix(in srgb, var(--color-brand) ${heat}%, var(--color-surface-2))`}"
 							>
 								<span class="flex items-center justify-between gap-1">
 									<span
@@ -505,6 +680,9 @@
 												aria-hidden="true"
 											></span>
 										{/if}
+										{#if plans.length > 0}
+											<span class="h-1.5 w-1.5 rounded-full bg-save" title="예정" aria-hidden="true"></span>
+										{/if}
 										{#if cell.alerts.length > 0}
 											<span
 												class="grid h-4 min-w-4 place-items-center rounded-full text-[10px] leading-none font-bold {cell.alerts.some(
@@ -522,12 +700,12 @@
 									</span>
 								</span>
 
-								<!-- 넓은 화면: 그날 내역을 줄로 -->
-								<span class="mt-1 hidden min-w-0 flex-1 flex-col gap-[3px] sm:flex">
+								<!-- 아주 넓은 화면: 큰 금액 두 건 + 예정 -->
+								<span class="mt-1 hidden min-w-0 flex-col gap-[3px] 2xl:flex">
 									{#each shown as e (e.id)}
 										<span
-											class="flex min-w-0 items-center justify-between gap-1 rounded-[5px] border-l-[3px] bg-[color-mix(in_srgb,var(--c)_14%,transparent)] py-[2px] pr-1 pl-1 text-[11px] leading-tight"
-											style="--c: {colorOf(e)}; border-color: var(--c)"
+											class="flex min-w-0 items-center justify-between gap-1 rounded-[5px] border-l-[3px] bg-surface/70 py-[2px] pr-1 pl-1 text-[11px] leading-tight"
+											style="border-color: {colorOf(e)}"
 										>
 											<span class="min-w-0 truncate font-medium">{e.memo || e.category}</span>
 											<span
@@ -543,27 +721,40 @@
 											</span>
 										</span>
 									{/each}
-									{#if cell.entries.length > 3}
-										<span class="px-1 text-[10.5px] text-mute">외 {cell.entries.length - 3}건</span>
+									{#if cell.entries.length > 2}
+										<span class="px-1 text-[10.5px] text-mute">외 {cell.entries.length - 2}건</span>
 									{/if}
+									{#each plans.slice(0, 2) as p, pi (pi)}
+										<span
+											class="flex min-w-0 items-center justify-between gap-1 rounded-[5px] border border-dashed border-save/50 px-1 py-[1px] text-[10.5px] leading-tight text-save"
+										>
+											<span class="min-w-0 truncate">{p.kind === 'card' ? '결제' : '예정'} · {p.label}</span>
+											<span class="shrink-0 font-num tabular-nums">{compact(p.amount)}</span>
+										</span>
+									{/each}
 								</span>
 
-								<!-- 좁은 화면: 합계와 분류 점 -->
-								<span
-									class="mt-auto space-y-px text-right font-num text-[9.5px] leading-tight font-medium tabular-nums sm:hidden"
-								>
-									{#if cell.income > 0}
-										<span class="block truncate text-income">+{compact(cell.income)}</span>
-									{/if}
+								<!-- 그날 합계 -->
+								<span class="mt-auto pt-1 text-right font-num leading-tight tabular-nums">
 									{#if cell.spend > 0}
-										<span class="block truncate">-{compact(cell.spend)}</span>
+										<span class="block truncate text-[10.5px] font-bold sm:text-[13px]"
+											>-{compact(cell.spend)}</span
+										>
+									{/if}
+									{#if cell.income > 0}
+										<span class="block truncate text-[9.5px] font-semibold text-income sm:text-[11px]"
+											>+{compact(cell.income)}</span
+										>
 									{/if}
 									{#if cell.save > 0}
-										<span class="block truncate text-save">{compact(cell.save)}</span>
+										<span class="block truncate text-[9.5px] text-save sm:text-[11px]">저축 {compact(cell.save)}</span>
+									{/if}
+									{#if !future && cell.spend === 0}
+										<span class="block text-[9.5px] font-semibold text-income sm:text-[10.5px]">무지출</span>
 									{/if}
 								</span>
 								{#if cell.entries.length > 0}
-									<span class="mt-1 flex items-center gap-[3px] sm:hidden" aria-hidden="true">
+									<span class="mt-0.5 flex items-center justify-end gap-[3px] 2xl:hidden" aria-hidden="true">
 										{#each dots(cell) as c, i (i)}
 											<span class="h-1.5 w-1.5 rounded-full" style="background: {c}"></span>
 										{/each}
@@ -574,26 +765,43 @@
 							<div aria-hidden="true"></div>
 						{/if}
 					{/each}
+					<!-- 주간 합계 (넓은 화면) -->
+					<div
+						class="hidden flex-col justify-center gap-0.5 rounded-xl border border-line bg-surface px-2 py-1.5 text-right font-num tabular-nums sm:flex"
+					>
+						<span class="text-[10.5px] font-semibold text-mute">{ri + 1}주</span>
+						<span class="text-[13px] font-bold">{wk.spend > 0 ? `-${compact(wk.spend)}` : '0'}</span>
+						{#if wk.income > 0}<span class="text-[11px] text-income">+{compact(wk.income)}</span>{/if}
+						{#if wk.noSpend > 0}<span class="text-[10.5px] text-income">무지출 {wk.noSpend}일</span>{/if}
+					</div>
 				{/each}
 			</div>
 
 			<p class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 px-1 text-[11.5px] text-mute">
-				<span class="text-income">+ 입금</span>
-				<span>- 지출</span>
-				<span class="text-save">저축</span>
 				<span class="flex items-center gap-1.5">
-					<span class="h-1.5 w-1.5 rounded-[2px] border border-ink/60"></span> 고정지출이 있는 날
+					<span
+						class="h-3 w-5 rounded"
+						style="background: linear-gradient(90deg, var(--color-surface-2), color-mix(in srgb, var(--color-brand) 28%, var(--color-surface-2)))"
+					></span>
+					많이 쓴 날일수록 진해요
+				</span>
+				<span class="flex items-center gap-1.5">
+					<span class="h-1.5 w-1.5 rounded-[2px] border border-ink/60"></span> 고정지출
+				</span>
+				<span class="flex items-center gap-1.5">
+					<span class="h-1.5 w-1.5 rounded-full bg-save"></span> 예정(고정지출·카드 결제)
 				</span>
 				<span class="flex items-center gap-1.5">
 					<span
 						class="grid h-4 w-4 place-items-center rounded-full bg-brand-soft text-[10px] font-bold text-brand"
 						>!</span
 					>
-					예산 80% 도달 · <span class="text-danger">초과</span>
+					예산 80% · <span class="text-danger">초과</span>
 				</span>
-				<span class="hidden sm:inline">금액이 큰 순서로 3건까지 보여요</span>
 			</p>
 		</section>
+
+		</div>
 
 		<!-- ── 선택한 날 ─────────────────────────── -->
 		<aside
@@ -632,10 +840,155 @@
 				<p class="border-b border-line px-4 py-4 text-[12.5px] leading-relaxed text-mute">
 					오늘까지의 날짜에만 기록할 수 있어요.
 				</p>
-			{:else}
-				<form
-					method="POST"
-					action={act('add')}
+				{:else}
+{#if modes.length > 1}
+	<div
+		class="grid gap-1 border-b border-line bg-surface-2 p-1.5"
+		style="grid-template-columns: repeat({modes.length}, minmax(0, 1fr))"
+		role="group"
+		aria-label="기록 종류"
+	>
+		{#each modes as [key, label] (key)}
+			<button
+				type="button"
+				aria-pressed={mode === key}
+				onclick={() => setMode(key)}
+				class="rounded-lg py-1.5 text-[13px] font-bold transition-colors {mode === key
+					? 'bg-surface text-ink shadow-sm'
+					: 'text-mute hover:text-ink'}"
+			>
+				{label}
+			</button>
+		{/each}
+	</div>
+{/if}
+					{#if mode === 'pay' && data.cardDebts.length > 0 && data.accountBalances.length > 0}
+						<form
+							method="POST"
+							action={act('payCard')}
+							use:enhance={() => {
+								return async ({ result, update }) => {
+									await update({ reset: false });
+									if (result.type === 'success') {
+										mode = 'entry';
+										addedFlash = true;
+										setTimeout(() => (addedFlash = false), 2200);
+									}
+								};
+							}}
+							class="space-y-3 border-b border-line p-4"
+						>
+							<input type="hidden" name="date" value={data.selectedDate} />
+							<label class="block">
+								<span class="eyebrow mb-1 block">어느 카드의 대금을 결제하나요?</span>
+								<select
+									name="cardId"
+									value={payCardSel}
+									onchange={(e) => pickPayCard(e.currentTarget.value)}
+									class="input"
+								>
+									{#each data.cardDebts as c (c.id)}
+										<option value={String(c.id)}>{c.name} · 이번 결제 {num(c.bill.due)}원</option>
+									{/each}
+								</select>
+							</label>
+							<label class="block">
+								<span class="eyebrow mb-1 block">어느 통장에서 내나요?</span>
+								<select name="accountId" bind:value={payAccountId} class="input">
+									{#each data.accountBalances as a (a.id)}
+										<option value={String(a.id)}>
+											{a.name} · {num(a.current)}원
+										</option>
+									{/each}
+								</select>
+							</label>
+							<label
+								class="flex items-baseline gap-1.5 rounded-xl border border-line-strong px-3 py-2 transition focus-within:border-brand focus-within:ring-3 focus-within:ring-brand/15"
+							>
+								<span class="sr-only">결제 금액</span>
+								<input
+									name="amount"
+									bind:value={payAmount}
+									oninput={() => (payAmount = money(payAmount))}
+									inputmode="numeric"
+									autocomplete="off"
+									placeholder="0"
+									class="min-w-0 flex-1 bg-transparent font-num text-[28px] font-semibold tabular-nums outline-none placeholder:text-faint"
+								/>
+								<span class="text-[14px] text-mute">원</span>
+							</label>
+							<div class="flex items-center justify-end gap-2">
+								{#if msgOf('payCard')}
+									<span class="mr-auto text-[12.5px] font-medium text-danger">{msgOf('payCard')}</span>
+								{/if}
+								<button type="button" class="btn-ghost" onclick={() => (mode = 'entry')}>취소</button>
+								<button class="btn shrink-0">결제</button>
+							</div>
+						</form>
+					{:else if mode === 'transfer' && accounts.length >= 2}
+							<form
+								method="POST"
+								action={act('transfer')}
+								use:enhance={() => {
+									return async ({ result, update }) => {
+										await update({ reset: false });
+										if (result.type === 'success') {
+											mode = 'entry';
+											addedFlash = true;
+											setTimeout(() => (addedFlash = false), 2200);
+										}
+									};
+								}}
+								class="space-y-3 border-b border-line p-4"
+							>
+								<input type="hidden" name="date" value={data.selectedDate} />
+								<label class="block">
+									<span class="eyebrow mb-1 block">보내는 통장</span>
+									<select name="fromId" bind:value={trFrom} class="input">
+										{#each accounts as a (a.id)}
+											<option value={String(a.id)}>
+												{a.name} · {num(data.accountBalances.find((b) => b.id === a.id)?.current ?? 0)}원
+											</option>
+										{/each}
+									</select>
+								</label>
+								<label class="block">
+									<span class="eyebrow mb-1 block">받는 통장</span>
+									<select name="toId" bind:value={trTo} class="input">
+										{#each accounts as a (a.id)}
+											<option value={String(a.id)} disabled={String(a.id) === trFrom}>
+												{a.name} · {num(data.accountBalances.find((b) => b.id === a.id)?.current ?? 0)}원
+											</option>
+										{/each}
+									</select>
+								</label>
+								<label
+									class="flex items-baseline gap-1.5 rounded-xl border border-line-strong px-3 py-2 transition focus-within:border-brand focus-within:ring-3 focus-within:ring-brand/15"
+								>
+									<span class="sr-only">송금 금액</span>
+									<input
+										name="amount"
+										bind:value={trAmount}
+										oninput={() => (trAmount = money(trAmount))}
+										inputmode="numeric"
+										autocomplete="off"
+										placeholder="0"
+										class="min-w-0 flex-1 bg-transparent font-num text-[28px] font-semibold tabular-nums outline-none placeholder:text-faint"
+									/>
+									<span class="text-[14px] text-mute">원</span>
+								</label>
+								<div class="flex items-center justify-end gap-2">
+									{#if msgOf('transfer')}
+										<span class="mr-auto text-[12.5px] font-medium text-danger">{msgOf('transfer')}</span>
+									{/if}
+									<button type="button" class="btn-ghost" onclick={() => (mode = 'entry')}>취소</button>
+									<button class="btn shrink-0">송금</button>
+								</div>
+							</form>
+						{:else}
+						<form
+							method="POST"
+							action={act('add')}
 					use:enhance={afterAdd}
 					class="space-y-3 border-b border-line p-4"
 				>
@@ -710,16 +1063,64 @@
 					{#if formKind === 'spend'}
 						<select name="methodId" bind:value={formMethodId} class="input" aria-label="결제수단">
 							<option value="">결제수단 선택 안 함</option>
-							{#each data.paymentMethods as m (m.id)}
-								<option value={String(m.id)}>{m.name}</option>
-							{/each}
+							{#if cardMethods.length > 0}
+								<optgroup label="카드">
+									{#each cardMethods as m (m.id)}<option value={String(m.id)}>{m.name}</option>{/each}
+								</optgroup>
+							{/if}
+							{#if accounts.length > 0}
+								<optgroup label="통장">
+									{#each accounts as m (m.id)}<option value={String(m.id)}>{m.name}</option>{/each}
+								</optgroup>
+							{/if}
 						</select>
-					{:else if formKind === 'save'}
+						{#if isCard(formMethodId)}
+							<label class="flex items-center gap-2">
+								<span class="eyebrow shrink-0">할부</span>
+								<select name="installments" bind:value={formInstallments} class="input">
+									{#each INSTALLMENTS as n (n)}
+										<option value={String(n)}>{n === 1 ? '일시불' : `${n}개월 할부`}</option>
+									{/each}
+								</select>
+							</label>
+							{#if monthlyOf(amtInput, formInstallments) > 0}
+								<p class="tnum -mt-1 rounded-lg bg-surface-2 px-3 py-2 text-[12px] text-mute">
+									한 달에 약 {num(monthlyOf(amtInput, formInstallments))}원씩 {formInstallments}개월 동안
+									결제돼요. 지출은 전체 금액으로 기록돼요.
+								</p>
+							{/if}
+						{/if}
+					{:else if formKind === 'income'}
+							{#if accounts.length === 0}
+								<p class="msg-error">관리 화면에서 통장을 먼저 등록하면 입금될 통장을 고를 수 있어요.</p>
+							{:else}
+								<label class="block">
+									<span class="eyebrow mb-1 block">어느 통장으로 들어왔나요?</span>
+									<select name="methodId" bind:value={formMethodId} class="input" required>
+										{#each accounts as a (a.id)}
+											<option value={String(a.id)}>{a.name}</option>
+										{/each}
+									</select>
+								</label>
+							{/if}
+						{:else if formKind === 'save'}
 						{#if data.savingsGoals.length === 0}
 							<p class="msg-error">
 								저축은 목표를 정해야 기록할 수 있어요. 관리 화면에서 저축 목표를 먼저 만들어 주세요.
 							</p>
 						{:else}
+							{#if accounts.length > 0}
+								<label class="block">
+									<span class="eyebrow mb-1 block">어느 통장의 돈으로 저축했나요?</span>
+									<select name="methodId" bind:value={formMethodId} class="input" required>
+										{#each accounts as a (a.id)}
+											<option value={String(a.id)}>
+												{a.name} · {num(data.accountBalances.find((b) => b.id === a.id)?.current ?? 0)}원
+											</option>
+										{/each}
+									</select>
+								</label>
+							{/if}
 							<label class="block">
 								<span class="eyebrow mb-1 block">어느 목표에 저축하나요?</span>
 								<select name="goalId" bind:value={formGoalId} class="input" required>
@@ -752,12 +1153,52 @@
 							<span class="font-medium text-danger">{addMsg}</span>
 						{/if}
 					</p>
-				</form>
-			{/if}
+					</form>
+					{/if}
+				{/if}
 
-			<!-- 그날 내역 -->
-			<div class="p-2">
-				{#if updateMsg}<p class="msg-error m-2">{updateMsg}</p>{/if}
+				<!-- 그날 내역 -->
+				<div class="p-2">
+					{#if updateMsg}<p class="msg-error m-2">{updateMsg}</p>{/if}
+					{#if dayTransfers.length > 0}
+						<ul class="mb-1">
+							{#each dayTransfers as t (t.id)}
+								<li class="flex items-center gap-3 rounded-xl px-3 py-2.5">
+									<Icon name="refresh" size={16} />
+									<div class="min-w-0 flex-1">
+										<p class="truncate text-[14px] font-semibold">송금 · {t.fromName} → {t.toName}</p>
+									</div>
+									<span class="font-num text-[14px] font-semibold tabular-nums">{num(t.amount)}원</span>
+									<form method="POST" action={act('deleteTransfer')} use:enhance>
+										<input type="hidden" name="id" value={t.id} />
+										<button class="iconbtn iconbtn-danger" aria-label="송금 기록 삭제"
+											><Icon name="trash" size={14} /></button
+										>
+									</form>
+								</li>
+							{/each}
+						</ul>
+					{/if}
+					{#if dayPayments.length > 0}
+						<ul class="mb-1">
+							{#each dayPayments as p (p.id)}
+								<li class="flex items-center gap-3 rounded-xl px-3 py-2.5">
+									<Icon name="wallet" size={16} />
+									<div class="min-w-0 flex-1">
+										<p class="truncate text-[14px] font-semibold">카드대금 · {p.cardName}</p>
+										<p class="text-[12px] text-mute">{p.accountName}에서 이체</p>
+									</div>
+									<span class="font-num text-[14px] font-semibold tabular-nums">{num(p.amount)}원</span>
+									<form method="POST" action={act('deleteCardPayment')} use:enhance>
+										<input type="hidden" name="id" value={p.id} />
+										<button class="iconbtn iconbtn-danger" aria-label="카드대금 결제 기록 삭제"
+											><Icon name="trash" size={14} /></button
+										>
+									</form>
+								</li>
+							{/each}
+						</ul>
+					{/if}
 				<ul>
 					{#each data.selectedEntries as e (e.id)}
 						<li class="rounded-xl">
@@ -808,11 +1249,50 @@
 											aria-label="결제수단"
 										>
 											<option value="">결제수단 선택 안 함</option>
-											{#each data.paymentMethods as m (m.id)}
-												<option value={String(m.id)}>{m.name}</option>
+											{#if cardMethods.length > 0}
+												<optgroup label="카드">
+													{#each cardMethods as m (m.id)}<option value={String(m.id)}>{m.name}</option>{/each}
+												</optgroup>
+											{/if}
+											{#if accounts.length > 0}
+												<optgroup label="통장">
+													{#each accounts as m (m.id)}<option value={String(m.id)}>{m.name}</option>{/each}
+												</optgroup>
+											{/if}
+										</select>
+										{#if isCard(editBuf.methodId)}
+											<select name="installments" bind:value={editBuf.installments} class="input" aria-label="할부">
+												{#each INSTALLMENTS as n (n)}
+													<option value={String(n)}>{n === 1 ? '일시불' : `${n}개월 할부`}</option>
+												{/each}
+											</select>
+										{/if}
+									{:else if editBuf.kind === 'income' && accounts.length > 0}
+										<select
+											name="methodId"
+											bind:value={editBuf.methodId}
+											class="input"
+											aria-label="입금된 통장"
+										>
+											<option value="" disabled>입금된 통장 선택</option>
+											{#each accounts as a (a.id)}
+												<option value={String(a.id)}>{a.name}</option>
 											{/each}
 										</select>
 									{:else if editBuf.kind === 'save'}
+										{#if accounts.length > 0}
+											<select
+												name="methodId"
+												bind:value={editBuf.methodId}
+												class="input"
+												aria-label="저축한 통장"
+											>
+												<option value="" disabled>저축한 통장 선택</option>
+												{#each accounts as a (a.id)}
+													<option value={String(a.id)}>{a.name}</option>
+												{/each}
+											</select>
+										{/if}
 										<select
 											name="goalId"
 											bind:value={editBuf.goalId}
@@ -853,8 +1333,10 @@
 											{e.memo || e.category}
 										</p>
 										<p class="mt-0.5 truncate text-[11.5px] text-mute">
-											{e.category}{e.source.startsWith('fixed:') ? ' · 고정' : ''}{e.goalName
-												? ` · ${e.goalName}`
+											{e.category}{e.source.startsWith('fixed:') ? ' · 고정' : ''}{e.installments > 1
+													? ` · ${e.installments}개월 할부`
+													: ''}{e.goalName
+												? ` · ${e.goalName}${e.methodName ? ` ← ${e.methodName}` : ''}`
 												: e.methodName
 													? ` · ${e.methodName}`
 													: ''}
@@ -894,4 +1376,43 @@
 			</div>
 		</aside>
 	</div>
+
+	<!-- ── 다가오는 일정 ──────────────────────── -->
+	{#if upcoming.length > 0}
+		<section class="card p-4 sm:p-5" aria-label="다가오는 일정">
+			<header class="flex flex-wrap items-baseline justify-between gap-2">
+				<h2 class="card-title flex items-center gap-2">
+					<Icon name="clock" size={16} /> 다가오는 일정
+				</h2>
+				<p class="tnum text-[12px] text-mute">
+					앞으로 30일 · 합계 <b class="font-num text-[14px] text-ink">{num(upcomingTotal)}원</b>
+				</p>
+			</header>
+			<ol class="mt-3 grid gap-2 sm:grid-cols-2">
+				{#each upcoming as u, i (i)}
+					<li class="flex items-center gap-3 rounded-xl border border-line px-3 py-2.5">
+						<span
+							class="grid h-10 w-10 shrink-0 place-items-center rounded-lg text-center leading-none {u.kind === 'card'
+								? 'bg-brand-soft text-brand'
+								: 'bg-save-soft text-save'}"
+						>
+							<span>
+								<span class="block font-num text-[15px] font-bold">{Number(u.date.slice(8))}</span>
+								<span class="block text-[9.5px] font-semibold">{Number(u.date.slice(5, 7))}월</span>
+							</span>
+						</span>
+						<span class="min-w-0 flex-1">
+							<span class="block truncate text-[13.5px] font-semibold">{u.label}</span>
+							<span class="block text-[11.5px] text-mute">
+								{u.kind === 'card' ? '카드대금 결제' : '고정지출'} · {u.dday === 0
+									? '오늘'
+									: `${u.dday}일 남음`}
+							</span>
+						</span>
+						<span class="tnum font-num text-[14px] font-semibold">{num(u.amount)}원</span>
+					</li>
+				{/each}
+			</ol>
+		</section>
+	{/if}
 </div>

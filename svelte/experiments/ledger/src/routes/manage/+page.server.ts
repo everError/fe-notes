@@ -8,12 +8,22 @@ import {
 	hasGoal,
 	hasMethod,
 	readCategory,
-	readInt
+	readInt,
+	readMethodId,
+	readPayDay,
+	readCycleStart
 } from '#lib/server/validate';
 
+/** 기존 저축금액 입력 — 비우면 0, 숫자가 아니면 NaN */
+function readInitial(raw: FormDataEntryValue | null): number {
+	const text = String(raw ?? '').trim();
+	if (text === '') return 0;
+	const n = parseAmount(text);
+	return Number.isFinite(n) && n >= 0 ? n : NaN;
+}
+
 /** 월 예산 입력 — 비우면 null(예산 없음), 숫자가 아니면 NaN */
-function readBudget(form: FormData): number | null {
-	const raw = form.get('budget');
+function readBudget(raw: FormDataEntryValue | null): number | null {
 	if (typeof raw !== 'string' || raw.trim() === '') return null;
 	const n = parseAmount(raw);
 	return Number.isFinite(n) && n > 0 ? n : NaN;
@@ -38,7 +48,10 @@ function readFixed(form: FormData, where: string) {
 	if (!Number.isFinite(amount) || amount <= 0)
 		return fail(400, { where, message: '금액을 입력해 주세요.' });
 	if (!readCategory('spend', category)) return fail(400, { where, message: '분류를 골라 주세요.' });
-	return { name, day, amount, category };
+	const methodId = readMethodId(form.get('methodId'));
+	if (String(form.get('methodId') ?? '') !== '' && methodId === null)
+		return fail(400, { where, message: '결제수단을 확인해 주세요.' });
+	return { name, day, amount, category, methodId };
 }
 
 export const actions: Actions = {
@@ -47,7 +60,7 @@ export const actions: Actions = {
 	addFixed: async ({ request }) => {
 		const v = readFixed(await request.formData(), 'addFixed');
 		if ('status' in v) return v;
-		db.addFixed(v.name, v.day, v.amount, v.category);
+		db.addFixed(v.name, v.day, v.amount, v.category, v.methodId);
 		return { where: 'addFixed', ok: true };
 	},
 
@@ -57,7 +70,7 @@ export const actions: Actions = {
 		if (id === null) return fail(400, { where: 'updateFixed', message: '잘못된 항목이에요.' });
 		const v = readFixed(form, 'updateFixed');
 		if ('status' in v) return v;
-		db.updateFixed(id, v.name, v.day, v.amount, v.category);
+		db.updateFixed(id, v.name, v.day, v.amount, v.category, v.methodId);
 		return { where: 'updateFixed', ok: true };
 	},
 
@@ -94,11 +107,11 @@ export const actions: Actions = {
 		if (hasCategory(kind, name))
 			return fail(400, { where: 'catAdd', message: '같은 이름의 분류가 이미 있어요.' });
 
-		const budget = readBudget(form);
+		const budget = readBudget(form.get('budget'));
 		if (Number.isNaN(budget))
 			return fail(400, { where: 'catAdd', message: '월 예산 금액을 확인해 주세요.' });
 
-		db.addCategory(kind, name, color);
+		db.addCategory(kind, name, color, form.get('nature') === 'bill' ? 'bill' : 'consume');
 		if (kind === 'spend') db.setBudget(name, budget);
 		return { where: 'catAdd', ok: true };
 	},
@@ -117,11 +130,12 @@ export const actions: Actions = {
 		if (hasCategory(kind, name, id))
 			return fail(400, { where: 'catUpdate', message: '같은 이름의 분류가 이미 있어요.' });
 
-		const budget = readBudget(form);
+		const budget = readBudget(form.get('budget'));
 		if (Number.isNaN(budget))
 			return fail(400, { where: 'catUpdate', message: '월 예산 금액을 확인해 주세요.' });
 
-		db.updateCategory(id, name, color);
+		const nature = form.get('nature');
+		db.updateCategory(id, name, color, nature === 'bill' ? 'bill' : nature === 'consume' ? 'consume' : undefined);
 		if (kind === 'spend') db.setBudget(name, budget);
 		return { where: 'catUpdate', ok: true };
 	},
@@ -137,6 +151,20 @@ export const actions: Actions = {
 		return { where: 'catDelete', ok: true };
 	},
 
+	/* ---------------- 월 예산 ---------------- */
+
+	budgetSet: async ({ request }) => {
+		const form = await request.formData();
+		const id = readInt(form.get('id'));
+		const cat = db.listCategories().find((c) => c.id === id && c.kind === 'spend');
+		if (!cat) return fail(400, { where: 'budgetSet', message: '잘못된 분류예요.' });
+		const budget = readBudget(form.get('budget'));
+		if (Number.isNaN(budget))
+			return fail(400, { where: 'budgetSet', message: '월 예산 금액을 확인해 주세요.' });
+		db.setBudget(cat.name, budget);
+		return { where: 'budgetSet', ok: true };
+	},
+
 	/* ---------------- 결제수단 ---------------- */
 
 	methodAdd: async ({ request }) => {
@@ -148,7 +176,15 @@ export const actions: Actions = {
 		if (hasMethod(kind, name))
 			return fail(400, { where: 'methodAdd', message: '같은 이름의 결제수단이 이미 있어요.' });
 
-		db.addPaymentMethod(kind, name);
+		const payDay = readPayDay(form.get('payDay'));
+		if (payDay === undefined)
+			return fail(400, { where: 'methodAdd', message: '결제일은 1~31일 사이로 입력해 주세요.' });
+
+		const cycleStart = readCycleStart(form.get('cycleStart'));
+		if (cycleStart === undefined)
+			return fail(400, { where: 'methodAdd', message: '이용기간 시작일은 1~28일 사이로 입력해 주세요.' });
+
+		db.addPaymentMethod(kind, name, payDay, cycleStart);
 		return { where: 'methodAdd', ok: true };
 	},
 
@@ -163,7 +199,18 @@ export const actions: Actions = {
 		if (hasMethod(target.kind, name, target.id))
 			return fail(400, { where: 'methodUpdate', message: '같은 이름의 결제수단이 이미 있어요.' });
 
-		db.updatePaymentMethod(target.id, name);
+		const payDay = readPayDay(form.get('payDay'));
+		if (payDay === undefined)
+			return fail(400, { where: 'methodUpdate', message: '결제일은 1~31일 사이로 입력해 주세요.' });
+
+		const cycleStart = readCycleStart(form.get('cycleStart'));
+		if (cycleStart === undefined)
+			return fail(400, {
+				where: 'methodUpdate',
+				message: '이용기간 시작일은 1~28일 사이로 입력해 주세요.'
+			});
+
+		db.updatePaymentMethod(target.id, name, payDay, cycleStart);
 		return { where: 'methodUpdate', ok: true };
 	},
 
@@ -191,7 +238,11 @@ export const actions: Actions = {
 		if (hasGoal(name))
 			return fail(400, { where: 'goalAdd', message: '같은 이름의 목표가 이미 있어요.' });
 
-		db.addSavingsGoal(name, amount, endMonth);
+		const initial = readInitial(form.get('initial'));
+		if (Number.isNaN(initial))
+			return fail(400, { where: 'goalAdd', message: '기존 저축금액을 확인해 주세요.' });
+
+		db.addSavingsGoal(name, amount, endMonth, initial);
 		return { where: 'goalAdd', ok: true };
 	},
 
@@ -211,7 +262,11 @@ export const actions: Actions = {
 		if (hasGoal(name, id))
 			return fail(400, { where: 'goalUpdate', message: '같은 이름의 목표가 이미 있어요.' });
 
-		db.updateSavingsGoal(id, name, amount, endMonth);
+		const initial = readInitial(form.get('initial'));
+		if (Number.isNaN(initial))
+			return fail(400, { where: 'goalUpdate', message: '기존 저축금액을 확인해 주세요.' });
+
+		db.updateSavingsGoal(id, name, amount, endMonth, initial);
 		return { where: 'goalUpdate', ok: true };
 	},
 
@@ -224,8 +279,8 @@ export const actions: Actions = {
 
 	/* ---------------- 데이터 ---------------- */
 
-	reset: async () => {
-		db.resetAndSeed();
+	clearAll: async () => {
+		db.clearAll();
 		redirect(303, '/');
 	}
 };

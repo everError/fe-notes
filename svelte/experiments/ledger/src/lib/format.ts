@@ -92,3 +92,17 @@ export function monthsBetween(from: string, to: string): number {
 	const [ty, tm] = to.split('-').map(Number);
 	return (ty - fy) * 12 + (tm - fm);
 }
+
+/** 카드 청구 주기 설명 — 예: '매달 2일 ~ 다음 달 1일 사용분 → 다음 달 15일 결제' */
+export function cycleText(cycleStart: number, payDay: number | null): string {
+	const range =
+		cycleStart === 1 ? '매달 1일 ~ 말일 사용분' : `매달 ${cycleStart}일 ~ 다음 달 ${cycleStart - 1}일 사용분`;
+	if (payDay === null) return range;
+	const rel = cycleStart === 1 || payDay > cycleStart - 1 ? '다음 달' : '다다음 달';
+	return `${range} → ${rel} ${payDay}일 결제`;
+}
+
+/** '2026-11-03' -> '11/3' */
+export function md(date: string): string {
+	return date ? `${Number(date.slice(5, 7))}/${Number(date.slice(8, 10))}` : '';
+}

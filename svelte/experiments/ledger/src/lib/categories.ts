@@ -1,6 +1,7 @@
 export interface CategoryInfo {
 	name: string;
 	color: string;
+	nature?: 'consume' | 'bill';
 }
 
 /** 지출 기본 분류 — 흰 바탕에서 구분되도록 채도를 맞춘 색 */
@@ -11,7 +12,7 @@ export const EXPENSE_CATEGORIES: CategoryInfo[] = [
 	{ name: '쇼핑', color: '#D6336C' },
 	{ name: '문화', color: '#3F6FB5' },
 	{ name: '생활', color: '#0C8599' },
-	{ name: '통신·구독', color: '#8A4F9E' },
+	{ name: '통신·구독', color: '#8A4F9E', nature: 'bill' },
 	{ name: '기타', color: '#6B7280' }
 ];
 

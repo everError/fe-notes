@@ -31,6 +31,10 @@ export const load: PageServerLoad = async ({ url, parent }) => {
 	const kindRaw = p.get('kind');
 	const kind: Kind | undefined =
 		kindRaw === 'spend' || kindRaw === 'income' || kindRaw === 'save' ? kindRaw : undefined;
+	const pay = kindRaw === 'pay'; // 카드대금 결제만 보기
+	const transferOnly = kindRaw === 'transfer'; // 송금만 보기
+	const natureRaw = p.get('nature');
+	const nature = natureRaw === 'consume' || natureRaw === 'bill' ? natureRaw : undefined;
 	const sortRaw = p.get('sort') as EntrySort | null;
 	const sort: EntrySort = sortRaw && SORTS.includes(sortRaw) ? sortRaw : 'date_desc';
 	const methodId = Number(p.get('method'));
@@ -39,19 +43,37 @@ export const load: PageServerLoad = async ({ url, parent }) => {
 	const filter = {
 		q: (p.get('q') ?? '').trim() || undefined,
 		kind,
-		category: p.get('category') || undefined,
+		categories: p.getAll('category').filter(Boolean),
+		methodKind: p.get('mkind') === 'card' || p.get('mkind') === 'account' ? (p.get('mkind') as 'card' | 'account') : undefined,
 		methodId: Number.isInteger(methodId) && methodId > 0 ? methodId : undefined,
 		from,
 		to,
 		min: readMoney(p.get('min')),
 		max: readMoney(p.get('max')),
-		source: sourceRaw === 'fixed' || sourceRaw === 'manual' ? sourceRaw : undefined,
+		source: sourceRaw === 'fixed' || sourceRaw === 'manual' || sourceRaw === 'installment'
+				? sourceRaw
+				: undefined,
+		nature,
 		sort
 	} as const;
 
+	// 카드대금 결제는 종류·분류·성격·구분 조건이 없거나 '카드대금 결제'를 골랐을 때만 함께 보인다
+	const plain =
+		!kind && filter.categories.length === 0 && !filter.methodKind && !nature && !filter.source;
+	const payments = pay || (plain && !transferOnly) ? db.searchCardPayments(filter) : [];
+	const transfers = transferOnly || (plain && !pay) ? db.searchTransfers(filter) : [];
+
 	return {
 		filter,
-		result: db.searchEntries(filter),
+		pay,
+		transferOnly,
+		payments,
+		transfers,
+		transferTotal: transfers.reduce((sum, x) => sum + x.amount, 0),
+		paidTotal: payments.reduce((sum, x) => sum + x.amount, 0),
+		result: pay || transferOnly
+			? { rows: [], count: 0, spend: 0, income: 0, save: 0, byCategory: [] }
+			: db.searchEntries(filter),
 		categories: db.listCategories(),
 		paymentMethods: db.listPaymentMethods(),
 		isDefaultRange: !hasRange && !all
